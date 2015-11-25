@@ -50,7 +50,28 @@ class BodyPart:
         distance_from_center = math.sqrt((given_center_x - x)**2 + (given_center_y - y)**2)
         return distance_from_center < self.radius
         
-        
+
+def point_along_a_line(start_x, start_y, end_x, end_y, distance):
+
+    dx = start_x - end_x
+    dy = start_y - end_y
+    x = 0
+    y = 0
+    if dx != 0:
+        k = float(dy) / float(dx)
+        point_dx = math.sqrt(distance**2 / (1 + k**2))
+        if dx < 0:
+            point_dx *= -1
+        point_dy = point_dx * k        
+        x = end_x + point_dx
+        y = end_y + point_dy        
+    else:
+        x = end_x
+        if dy < 0:
+            y = end_y - distance
+        else:
+            y = end_y + distance
+    return (x, y)                 
 
 class Animal:
     
@@ -60,33 +81,24 @@ class Animal:
             self.x = x;
             self.y = y;        
 
-    def __init__(self, front_x, front_y, front_radius, back_x, back_y, back_radius):
-        self.front = BodyPart(front_x, front_y, front_radius)
-        self.back = BodyPart(back_x, back_y, back_radius)
+    # deduce body parts positions from back-to-front vector
+    def __init__(self, start_x, start_y, end_x, end_y):
         
-        # deduce head position
-        dx = self.front.center.x - self.back.center.x
-        dy = self.front.center.y - self.back.center.y
-        head_x = 0
-        head_y = 0
         head_radius = 3
-        if dx != 0:
-            k = float(dy) / float(dx)
-            head_dx = math.sqrt((head_radius + self.front.radius)**2 / (1 + k**2))
-            if dx < 0:
-                head_dx *= -1
-            head_dy = head_dx * k        
-            head_x = self.front.center.x + head_dx
-            head_y = self.front.center.y + head_dy        
-        else:
-            head_x = self.front.center.x
-            if dy < 0:
-                head_y = self.front.center.y - (head_radius + self.front.radius)
-            else:
-                head_y = self.front.center.y + (head_radius + self.front.radius)
-                
-        self.head = BodyPart(int(head_x), int(head_y), head_radius)
+        front_radius = 5
+        back_radius = 7
         
+        length = math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
+        
+        total = 2*back_radius + 2*front_radius + 2*head_radius
+
+        back_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(back_radius) / total)
+        front_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + front_radius) / total)
+        head_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + 2*front_radius + head_radius) / total)
+
+        self.head = BodyPart(int(head_position[0]), int(head_position[1]), head_radius)
+        self.front = BodyPart(int(front_position[0]), int(front_position[1]), front_radius)
+        self.back = BodyPart(int(back_position[0]), int(back_position[1]), back_radius)        
     
     def shift(self, matrix):        
         self.front.shift(matrix)
@@ -223,9 +235,9 @@ class Animals:
 
     animals = []    
     
-    def add_animal(self, front_x, front_y, front_radius, back_x, back_y, back_radius):
+    def add_animal(self, start_x, start_y, end_x, end_y):
         
-        self.animals.append(Animal(front_x, front_y, front_radius, back_x, back_y, back_radius))
+        self.animals.append(Animal(start_x, start_y, end_x, end_y))
         
     def draw(self, canvas):
 
@@ -247,7 +259,7 @@ class Animals:
             a.fit(matrix, weight_matrix);    
             
             
-def do_tracking(frames, time_to_stop):
+def do_tracking(frames, time_to_stop, animals):
     
     cap = cv2.VideoCapture('videotest.avi')
     cap.set(cv2.CAP_PROP_POS_FRAMES, 190)
@@ -259,11 +271,11 @@ def do_tracking(frames, time_to_stop):
         print('can\'t read the video')
         sys.exit()
         
-    animals = Animals()
+    #animals = Animals()
 
     border = 20
-    animals.add_animal(border + 133, border + 34, 5, border + 146, border + 34, 7)
-    animals.add_animal(border + 103, border + 74, 5, border + 117, border + 78, 7)
+#    animals.add_animal(border + 133, border + 34, 5, border + 146, border + 34, 7)
+#    animals.add_animal(border + 103, border + 74, 5, border + 117, border + 78, 7)
 
     # setup initial location of window
     r, h, c, w = 20, 30, 115, 35  # simply hardcoded the values
