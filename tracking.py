@@ -5,8 +5,7 @@ import math
 import threading
 import Queue
 
-import Tkinter as Tk
-from PIL import Image, ImageTk
+tracking_border = 20
 
 class BodyPart:
         
@@ -18,9 +17,6 @@ class BodyPart:
     def __init__(self, x, y, radius):
         self.center = self.Center(x, y)
         self.radius = radius
-    
-    def draw(self, matrix):        
-        cv2.circle(matrix, (self.center.x, self.center.y), self.radius, (255, 255, 255))
 
     def set_weights(self, matrix):        
         #print(self.center.x)
@@ -49,6 +45,9 @@ class BodyPart:
     def belongs_to(self, given_center_x, given_center_y, x, y):
         distance_from_center = math.sqrt((given_center_x - x)**2 + (given_center_y - y)**2)
         return distance_from_center < self.radius
+        
+    def get_center(self):
+        return self.Center(self.center.x - tracking_border, self.center.y - tracking_border)
         
 
 def point_along_a_line(start_x, start_y, end_x, end_y, distance):
@@ -84,9 +83,18 @@ class Animal:
     # deduce body parts positions from back-to-front vector
     def __init__(self, start_x, start_y, end_x, end_y):
         
-        head_radius = 3
-        front_radius = 5
-        back_radius = 7
+        head_radius = 5
+        front_radius = 6
+        back_radius = 8
+
+#        head_radius = 3
+#        front_radius = 5
+#        back_radius = 7
+        
+        start_x += tracking_border
+        end_x += tracking_border
+        start_y += tracking_border
+        end_y += tracking_border
         
         length = math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
         
@@ -104,11 +112,6 @@ class Animal:
         self.front.shift(matrix)
         self.back.shift(matrix)
             
-    def draw(self, matrix):        
-        self.front.draw(matrix)        
-        self.back.draw(matrix)
-        self.head.draw(matrix)
-
         """
         # deduce head position
         dx = self.front.center.x - self.back.center.x
@@ -239,11 +242,6 @@ class Animals:
         
         self.animals.append(Animal(start_x, start_y, end_x, end_y))
         
-    def draw(self, canvas):
-
-        for a in self.animals:
-            a.draw(canvas)
-        
     def fit(self, matrix):
 
         rows, cols = matrix.shape[:2]
@@ -258,35 +256,72 @@ class Animals:
                     
             a.fit(matrix, weight_matrix);    
             
+class TrackingFlowElement:
+                
+    def __init__(self, filtered_image):
+        self.filtered_image = filtered_image
             
-def do_tracking(frames, time_to_stop, animals):
-    
-    cap = cv2.VideoCapture('videotest.avi')
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 190)
 
-    # take first frame of the video
-    ret, frame = cap.read()
+def resize(frame):
+    width = 320
+    height = 240
+    rows, cols = frame.shape[:2]        
+    k = float(cols) / rows                
+    if k > float(width) / height:
+        cols = width
+        rows = cols / k
+    else:
+        rows = height
+        cols = rows * k
+    frame = cv2.resize(frame, (int(cols), int(rows)))
+    return frame    
+
+            
+def do_tracking(video_file, start_frame, tracking_flow, time_to_stop, animals):
+
+    if not animals.animals:
+        return
+    
+    
+    video = cv2.VideoCapture(video_file)
+    video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
+    
+    # take current frame of the video
+    ret, frame = video.read()
 
     if not ret:
         print('can\'t read the video')
         sys.exit()
+
+    frame = resize(frame)
         
-    #animals = Animals()
+    # calculate the rectangle enclosing the first animal body - will use it for color band 
+    # calculation
 
-    border = 20
-#    animals.add_animal(border + 133, border + 34, 5, border + 146, border + 34, 7)
-#    animals.add_animal(border + 103, border + 74, 5, border + 117, border + 78, 7)
 
-    # setup initial location of window
-    r, h, c, w = 20, 30, 115, 35  # simply hardcoded the values
-    track_window = (c, r, w, h)
- 
-    initial_areas = [ ( 140, 23, 65, 25 ), ( 140, 23, 65, 25 ) ]
+    animal = animals.animals[0]
+
+    left_x, right_x, top_y, bottom_y = 0, 0, 0, 0
+
+    if animal.head.center.x < animal.back.center.x:
+        left_x = animal.head.center.x - animal.head.radius - tracking_border
+        right_x = animal.back.center.x + animal.back.radius - tracking_border
+    else:
+        right_x = animal.head.center.x + animal.head.radius - tracking_border
+        left_x = animal.back.center.x - animal.back.radius - tracking_border
+
+    if animal.head.center.y < animal.back.center.y:
+        top_y = animal.head.center.y - animal.head.radius - tracking_border
+        bottom_y = animal.back.center.y + animal.back.radius - tracking_border
+    else:
+        bottom_y = animal.head.center.y + animal.head.radius - tracking_border
+        top_y = animal.back.center.y - animal.back.radius - tracking_border
     
     # set up the ROI for tracking
-    roi = frame[r:r+h, c:c+w]
+    roi = frame[top_y:bottom_y, left_x:right_x]
     hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
+#    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,200.)))
 
     roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
 
@@ -297,11 +332,9 @@ def do_tracking(frames, time_to_stop, animals):
     
     while(not time_to_stop.isSet()):
    
-       ret, frame = cap.read()    
+       frame = resize(frame)
 
-       if ret == False:
-           break
-   
+       border = tracking_border   
        frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, (0, 0, 0))
   
        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -310,18 +343,21 @@ def do_tracking(frames, time_to_stop, animals):
        rows, cols = dst.shape[:2]
     
        animals.fit(dst)
-       animals.draw(dst)
 
-       dst2x = cv2.resize(dst, (0, 0), fx = 2.0, fy = 2.0)
-         
-       animals.draw(frame)
+       #dst2x = cv2.resize(dst, (0, 0), fx = 2.0, fy = 2.0)
+                    
+       tracking_flow_element = TrackingFlowElement(dst)       
+       tracking_flow.put(tracking_flow_element)
 
-       frame2x = cv2.resize(frame, (0, 0), fx = 2.0, fy = 2.0)
+       # read the nexet frame
+       ret, frame = video.read()    
+
+       if ret == False:
+           break
        
-       frames.put(frame2x)
              
 
     cv2.destroyAllWindows()
-    cap.release()    
+  
     
     
