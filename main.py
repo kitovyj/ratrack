@@ -10,21 +10,26 @@ import tkFileDialog
 
 from PIL import Image, ImageTk
 
-from tracking import do_tracking, Animals, Animal, BodyPart, TrackingFlowElement
+from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
 
 class point:
     def __init__( self, x = 0, y = 0):
         self.x, self.y = x, y
+        
+def calculate_scale_factor(src_width, src_height, dst_width, dst_height):
+    k = float(src_width) / src_height
+    if k > float(dst_width) / dst_height:
+        return float(dst_width) / src_width
+    else:
+        return float(dst_height) / src_height        
 
 class Gui:
     
     tracking_flow = Queue.Queue()    
     
     time_to_stop = threading.Event()
-
-    animals = Animals()
 
     current_frame_number = 0
 
@@ -36,8 +41,10 @@ class Gui:
     new_animal_start = point()
     new_animal_end = point()
     
-    max_width = 320
-    max_height = 240
+    max_width = 500
+    max_height = 400
+    
+    scale_factor = 1
         
     def __init__(self):
     
@@ -73,9 +80,16 @@ class Gui:
 
         # take first frame of the video
         ret, self.current_frame = self.video.read()
+
         if not ret:
             print('can\'t read the video')
             sys.exit()
+            
+        rows, cols = self.current_frame.shape[:2]
+        
+        self.tracking = Tracking(cols, rows)     
+        
+        self.scale_factor = calculate_scale_factor(cols, rows, self.max_width, self.max_height)
 
         self.draw_image()
         self.update_image()
@@ -97,11 +111,13 @@ class Gui:
         self.set_image(self.image_container, self.current_image)            
     
     def draw_bodypart(self, bp):
-        c =  bp.get_center()
-        cv2.circle(self.current_image, (c.x, c.y), bp.radius, (255, 255, 255))
+        c = bp.get_center()
+        r = bp.get_radius()
+        cv2.circle(self.current_image, (int(c.x * self.scale_factor), int(c.y * self.scale_factor)), 
+                   int(r * self.scale_factor), (255, 255, 255))
             
     def draw_animals(self):
-        for a in self.animals.animals:
+        for a in self.tracking.animals.animals:
             self.draw_bodypart(a.back)
             self.draw_bodypart(a.front)
             self.draw_bodypart(a.head)    
@@ -148,8 +164,8 @@ class Gui:
         self.update_image()
 
     def start(self):
-        self.tracking_thread = threading.Thread(target = do_tracking, args = 
-            (self.video_file_name, self.current_frame_number, self.tracking_flow, self.time_to_stop, self.animals))
+        self.tracking_thread = threading.Thread(target = self.tracking.do_tracking, args = 
+            (self.video_file_name, self.current_frame_number, self.tracking_flow, self.time_to_stop))
         self.tracking_thread.start()
         self.poll_tracking_flow()
 
@@ -174,7 +190,8 @@ class Gui:
             self.new_animal_end.x = event.x
             self.new_animal_end.y = event.y
             self.adding_new_animal = False
-            self.animals.add_animal(self.new_animal_start.x, self.new_animal_start.y, self.new_animal_end.x, self.new_animal_end.y)
+            self.tracking.add_animal(self.new_animal_start.x / self.scale_factor, self.new_animal_start.y / self.scale_factor, 
+                                     self.new_animal_end.x / self.scale_factor, self.new_animal_end.y / self.scale_factor)
             self.draw_image()
             self.update_image()            
     

@@ -6,6 +6,15 @@ import threading
 import Queue
 
 tracking_border = 20
+tracking_resolution_width = 320
+tracking_resolution_height = 240
+
+class TrackingParams:
+    
+    scale_factor = 1    
+    
+    def __init__(self, scale_factor = 1):
+        self.scale_factor = scale_factor
 
 class BodyPart:
         
@@ -14,9 +23,12 @@ class BodyPart:
             self.x = x
             self.y = y
         
-    def __init__(self, x, y, radius):
-        self.center = self.Center(x, y)
-        self.radius = radius
+    def __init__(self, params, x, y, radius):
+        self.params = params
+        self.center = self.Center(x * params.scale_factor + tracking_border, 
+                                  y * params.scale_factor + tracking_border)
+        self.original_radius = radius
+        self.radius = radius * params.scale_factor
 
     def set_weights(self, matrix):        
         #print(self.center.x)
@@ -29,8 +41,8 @@ class BodyPart:
         sum_y = 0
         values_sum = 0
         total_elements = 0
-        for x in range(self.center.x - self.radius, self.center.x + self.radius):
-            for y in range(self.center.y - self.radius, self.center.y + self.radius):
+        for x in xrange(self.center.x - self.radius, self.center.x + self.radius):
+            for y in xrange(self.center.y - self.radius, self.center.y + self.radius):
                 distance_from_center = math.sqrt((self.center.x - x)**2 + (self.center.y - y)**2)
                 if distance_from_center < self.radius:
                     total_elements += 1
@@ -46,8 +58,14 @@ class BodyPart:
         distance_from_center = math.sqrt((given_center_x - x)**2 + (given_center_y - y)**2)
         return distance_from_center < self.radius
         
+    # todo: add mitex synchronization to preperties retrieval methods
+        
     def get_center(self):
-        return self.Center(self.center.x - tracking_border, self.center.y - tracking_border)
+        return self.Center(self.center.x / self.params.scale_factor - tracking_border, 
+                           self.center.y / self.params.scale_factor - tracking_border)
+
+    def get_radius(self):
+        return self.original_radius
         
 
 def point_along_a_line(start_x, start_y, end_x, end_y, distance):
@@ -81,21 +99,18 @@ class Animal:
             self.y = y;        
 
     # deduce body parts positions from back-to-front vector
-    def __init__(self, start_x, start_y, end_x, end_y):
+    def __init__(self, params, start_x, start_y, end_x, end_y):
         
-        head_radius = 5
-        front_radius = 6
-        back_radius = 8
+        self.params = params        
+        
+        head_radius = 5 / params.scale_factor
+        front_radius = 6 / params.scale_factor
+        back_radius = 8 / params.scale_factor
 
 #        head_radius = 3
 #        front_radius = 5
 #        back_radius = 7
-        
-        start_x += tracking_border
-        end_x += tracking_border
-        start_y += tracking_border
-        end_y += tracking_border
-        
+                
         length = math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
         
         total = 2*back_radius + 2*front_radius + 2*head_radius
@@ -104,9 +119,9 @@ class Animal:
         front_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + front_radius) / total)
         head_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + 2*front_radius + head_radius) / total)
 
-        self.head = BodyPart(int(head_position[0]), int(head_position[1]), head_radius)
-        self.front = BodyPart(int(front_position[0]), int(front_position[1]), front_radius)
-        self.back = BodyPart(int(back_position[0]), int(back_position[1]), back_radius)        
+        self.head = BodyPart(params, int(head_position[0]), int(head_position[1]), head_radius)
+        self.front = BodyPart(params, int(front_position[0]), int(front_position[1]), front_radius)
+        self.back = BodyPart(params, int(back_position[0]), int(back_position[1]), back_radius)        
     
     def shift(self, matrix):        
         self.front.shift(matrix)
@@ -163,10 +178,10 @@ class Animal:
 
     def cover(self, matrix, center_x, center_y, part, configuration, weight_matrix):
 
-        mask = np.zeros((part.radius*2 + 1, part.radius*2 + 1), np.float)        
-        cv2.circle(mask, (part.radius, part.radius), part.radius, (1.0), -1)                    
-        masked = np.multiply(mask, matrix[center_y - part.radius: center_y + part.radius + 1, center_x - part.radius:center_x + part.radius + 1])
-        weighted =  np.multiply(masked, weight_matrix[center_y - part.radius: center_y + part.radius + 1, center_x - part.radius:center_x + part.radius + 1])
+        mask = np.zeros((int(part.radius*2) + 1, int(part.radius*2) + 1), np.float)        
+        cv2.circle(mask, (int(part.radius), int(part.radius)), int(part.radius), (1.0), -1)                    
+        masked = np.multiply(mask, matrix[int(center_y - part.radius): int(center_y + part.radius) + 1, int(center_x - part.radius):int(center_x + part.radius) + 1])
+        weighted =  np.multiply(masked, weight_matrix[int(center_y - part.radius): int(center_y + part.radius) + 1, int(center_x - part.radius):int(center_x + part.radius) + 1])
         
         return weighted.sum();        
         
@@ -178,8 +193,8 @@ class Animal:
         result_config = list(configuration)
         search_region = 6
         part, rest = parts[0], parts[1:]
-        for x in range(part.center.x - search_region / 2, part.center.x + search_region / 2):
-            for y in range(part.center.y - search_region / 2, part.center.y + search_region / 2):
+        for x in xrange(int(part.center.x) - search_region / 2, int(part.center.x) + search_region / 2):
+            for y in xrange(int(part.center.y) - search_region / 2, int(part.center.y) + search_region / 2):
 
                 if configuration:
                     dst = math.sqrt((configuration[-1].x - x)**2 + (configuration[-1].y - y)**2)
@@ -207,7 +222,7 @@ class Animal:
                 local_max = 0
                 if rest:
                     new_weight_matrix = np.copy(weight_matrix)
-                    cv2.circle(new_weight_matrix, (x, y), part.radius, (0.0), -1)                    
+                    cv2.circle(new_weight_matrix, (x, y), int(part.radius), (0.0), -1)                    
                     (local_max, local_max_config) = self.do_fit(matrix, rest, new_config, new_weight_matrix)
                 else:
                     local_max_config = new_config
@@ -238,9 +253,13 @@ class Animals:
 
     animals = []    
     
+    def __init__(self, params):
+        
+        self.params = params        
+    
     def add_animal(self, start_x, start_y, end_x, end_y):
         
-        self.animals.append(Animal(start_x, start_y, end_x, end_y))
+        self.animals.append(Animal(self.params, start_x, start_y, end_x, end_y))
         
     def fit(self, matrix):
 
@@ -259,12 +278,20 @@ class Animals:
 class TrackingFlowElement:
                 
     def __init__(self, filtered_image):
-        self.filtered_image = filtered_image
-            
+        self.filtered_image = filtered_image            
+
+def calculate_scale_factor(frame_width, frame_height):
+    width = tracking_resolution_width
+    height = tracking_resolution_height
+    k = float(frame_width) / frame_height
+    if k > float(width) / height:
+        return float(width) / frame_width
+    else:
+        return float(height) / frame_height
 
 def resize(frame):
-    width = 320
-    height = 240
+    width = tracking_resolution_width
+    height = tracking_resolution_height
     rows, cols = frame.shape[:2]        
     k = float(cols) / rows                
     if k > float(width) / height:
@@ -276,88 +303,94 @@ def resize(frame):
     frame = cv2.resize(frame, (int(cols), int(rows)))
     return frame    
 
-            
-def do_tracking(video_file, start_frame, tracking_flow, time_to_stop, animals):
 
-    if not animals.animals:
-        return
-    
-    
-    video = cv2.VideoCapture(video_file)
-    video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
-    
-    # take current frame of the video
-    ret, frame = video.read()
 
-    if not ret:
-        print('can\'t read the video')
-        sys.exit()
+class Tracking:
 
-    frame = resize(frame)
+    tracking_params = TrackingParams()
+    
+    def __init__(self, frame_width, frame_height):            
+        self.tracking_params.scale_factor = calculate_scale_factor(frame_width, frame_height)        
+        self.animals = Animals(self.tracking_params)
+
+    def add_animal(self, start_x, start_y, end_x, end_y):
         
-    # calculate the rectangle enclosing the first animal body - will use it for color band 
-    # calculation
+        self.animals.add_animal(start_x, start_y, end_x, end_y)
+        
+    def do_tracking(self, video_file, start_frame, tracking_flow, time_to_stop):
 
+        if not self.animals.animals:
+            return
+        
+        video = cv2.VideoCapture(video_file)
+        video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
+            
+        # take current frame of the video
+        ret, frame = video.read()
 
-    animal = animals.animals[0]
+        if not ret:
+            print('can\'t read the video')
+            sys.exit()
+        
+        # calculate the rectangle enclosing the first animal body - will use it for color band 
+        # calculation
 
-    left_x, right_x, top_y, bottom_y = 0, 0, 0, 0
+        animal = self.animals.animals[0]
 
-    if animal.head.center.x < animal.back.center.x:
-        left_x = animal.head.center.x - animal.head.radius - tracking_border
-        right_x = animal.back.center.x + animal.back.radius - tracking_border
-    else:
-        right_x = animal.head.center.x + animal.head.radius - tracking_border
-        left_x = animal.back.center.x - animal.back.radius - tracking_border
+        left_x, right_x, top_y, bottom_y = 0, 0, 0, 0
 
-    if animal.head.center.y < animal.back.center.y:
-        top_y = animal.head.center.y - animal.head.radius - tracking_border
-        bottom_y = animal.back.center.y + animal.back.radius - tracking_border
-    else:
-        bottom_y = animal.head.center.y + animal.head.radius - tracking_border
-        top_y = animal.back.center.y - animal.back.radius - tracking_border
+        if animal.head.center.x < animal.back.center.x:
+            left_x = animal.head.center.x - animal.head.radius - tracking_border
+            right_x = animal.back.center.x + animal.back.radius - tracking_border
+        else:
+            right_x = animal.head.center.x + animal.head.radius - tracking_border
+            left_x = animal.back.center.x - animal.back.radius - tracking_border
+
+        if animal.head.center.y < animal.back.center.y:
+            top_y = animal.head.center.y - animal.head.radius - tracking_border
+            bottom_y = animal.back.center.y + animal.back.radius - tracking_border
+        else:
+            bottom_y = animal.head.center.y + animal.head.radius - tracking_border
+            top_y = animal.back.center.y - animal.back.radius - tracking_border
     
-    # set up the ROI for tracking
-    roi = frame[top_y:bottom_y, left_x:right_x]
-    hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
-#    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,200.)))
+        roi = frame[top_y:bottom_y, left_x:right_x]
+        hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
+        #    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,200.)))
 
-    roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
-
-    cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
+        roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
+        
+        cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
     
-    # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-    term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
-    
-    while(not time_to_stop.isSet()):
+        # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
+        term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
+            
+        while(not time_to_stop.isSet()):
    
-       frame = resize(frame)
+           frame = resize(frame)
 
-       border = tracking_border   
-       frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, (0, 0, 0))
+           border = tracking_border   
+           frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, (0, 0, 0))
   
-       hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-       dst = cv2.calcBackProject([hsv], [2], roi_hist, [0,180], 1)  
+           hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+           dst = cv2.calcBackProject([hsv], [2], roi_hist, [0,180], 1)  
     
-       rows, cols = dst.shape[:2]
+           rows, cols = dst.shape[:2]
     
-       animals.fit(dst)
-
-       #dst2x = cv2.resize(dst, (0, 0), fx = 2.0, fy = 2.0)
+           self.animals.fit(dst)
                     
-       tracking_flow_element = TrackingFlowElement(dst)       
-       tracking_flow.put(tracking_flow_element)
+           tracking_flow_element = TrackingFlowElement(dst)       
+           tracking_flow.put(tracking_flow_element)
 
-       # read the nexet frame
-       ret, frame = video.read()    
+           # read the next frame
+           ret, frame = video.read()    
 
-       if ret == False:
-           break
+           if ret == False:
+               break
        
              
 
-    cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
   
     
     
