@@ -21,9 +21,26 @@ class point:
 def calculate_scale_factor(src_width, src_height, dst_width, dst_height):
     k = float(src_width) / src_height
     if k > float(dst_width) / dst_height:
-        return float(dst_width) / src_width
+        f = float(dst_width) / src_width
+        return (f, 0, (dst_height - dst_width / k) / 2)
     else:
-        return float(dst_height) / src_height        
+        f = float(dst_height) / src_height        
+        return (f, (dst_width - dst_height * k) / 2, 0)
+
+def fit_image(image, width, height):
+    
+    rows, cols = image.shape[:2]
+        
+    k = float(cols) / rows
+                
+    if k > float(width) / height:
+        cols = width
+        rows = cols / k
+    else:
+        rows = height
+        cols = rows * k
+        
+    return cv2.resize(image, (int(cols), int(rows)))
 
 class Gui:
     
@@ -41,25 +58,39 @@ class Gui:
     new_animal_start = point()
     new_animal_end = point()
     
-    max_width = 500
-    max_height = 400
+    image_width = 500
+    image_height = 400
+
+#    filtered_image_width = 320
+    filtered_image_width = 470
+    filtered_image_height = 370
     
-    scale_factor = 1
+    image_scale_factor = 0
+    image_dx = 0
+    image_dy = 0
         
     def __init__(self):
     
         self.root = Tk.Tk()
-        self.root.geometry('800x600')
+        self.root.geometry('1200x600')
     
         self.image_container = Tk.Label(self.root)
-        self.image_container.place(x = 100, y = 20)
+        self.image_container.place(x = 180, y = 20)
+        # have to set fake image to switch 'width' and 'height' interpretation mode
+        self.image_container.image = ImageTk.PhotoImage('RGB', (1, 1))
+        self.image_container.config(image = self.image_container.image)
+        self.image_container.config(relief = Tk.GROOVE, width = self.image_width, height = self.image_height)
+#        self.image_container.config(borderwidth = 1)
         self.image_container.bind('<Button-1>', self.on_left_mouse_button_down)
         self.image_container.bind('<ButtonRelease-1>', self.on_left_mouse_button_up)
         self.image_container.bind('<Motion>', self.on_mouse_moved)
 
-        self.filtered_image_container = Tk.Label(self.root)
-        self.filtered_image_container.place(x = 430, y = 20)
-        
+        self.filtered_image_container = Tk.Label(self.root, text = 'test')
+        self.filtered_image_container.place(x = 700, y = 20)
+        self.filtered_image_container.image = ImageTk.PhotoImage('RGB', (1, 1))
+        self.filtered_image_container.config(image = self.filtered_image_container.image)
+        self.filtered_image_container.config(relief = Tk.GROOVE, width = self.filtered_image_width, height = self.filtered_image_height)
+
         self.quit_button = Tk.Button(self.root, text = "Quit", command = self.quit)
         self.quit_button.place(x = 5, y = 100)
         self.start_button = Tk.Button(self.root, text = "Start", command = self.start)
@@ -70,9 +101,9 @@ class Gui:
         self.on_new_video()
         
         self.max_video_position_slider_value = 100
-        self.slider = Tk.Scale(self.root, length = 300, from_ = 0, to = self.max_video_position_slider_value, 
+        self.slider = Tk.Scale(self.root, length = 500, from_ = 0, to = self.max_video_position_slider_value, 
                   orient = Tk.HORIZONTAL, command = self.on_video_position_changed)                  
-        self.slider.pack(side = Tk.BOTTOM)                
+        self.slider.place(x = 180, y = 500)
         
     def on_new_video(self):
         self.video = cv2.VideoCapture(self.video_file_name)
@@ -89,8 +120,8 @@ class Gui:
         
         self.tracking = Tracking(cols, rows)     
         
-        self.scale_factor = calculate_scale_factor(cols, rows, self.max_width, self.max_height)
-
+        (self.image_scale_factor, self.image_dx, self.image_dy) = calculate_scale_factor(cols, rows, self.image_width, self.image_height)
+        
         self.draw_image()
         self.update_image()
         
@@ -104,17 +135,19 @@ class Gui:
     def set_image(self, container, matrix):
         img = Image.fromarray(matrix)
         imgtk = ImageTk.PhotoImage(image = img) 
-        container.configure(image = imgtk)
         container.image = imgtk        
+        container.configure(image = container.image)
 
     def update_image(self):
         self.set_image(self.image_container, self.current_image)            
     
     def draw_bodypart(self, bp):
         c = bp.get_center()
+        c.x = c.x * self.image_scale_factor
+        c.y = c.y * self.image_scale_factor
         r = bp.get_radius()
-        cv2.circle(self.current_image, (int(c.x * self.scale_factor), int(c.y * self.scale_factor)), 
-                   int(r * self.scale_factor), (255, 255, 255))
+        cv2.circle(self.current_image, (int(c.x), int(c.y)), 
+                   int(r * self.image_scale_factor), (255, 255, 255))
             
     def draw_animals(self):
         for a in self.tracking.animals.animals:
@@ -123,24 +156,14 @@ class Gui:
             self.draw_bodypart(a.head)    
                 
     def draw_image(self):
-        self.current_image = self.current_frame.copy()
-
-        rows, cols = self.current_image.shape[:2]
         
-        k = float(cols) / rows
-                
-        if k > float(self.max_width) / self.max_height:
-            cols = self.max_width
-            rows = cols / k
-        else:
-            rows = self.max_height
-            cols = rows * k
-
-        self.current_image = cv2.resize(self.current_image, (int(cols), int(rows)))
+        self.current_image = self.current_frame.copy()
+        self.current_image = fit_image(self.current_image, self.image_width, self.image_height)
         
         self.draw_animals()
         if self.adding_new_animal:
-            cv2.line(self.current_image, (self.new_animal_start.x, self.new_animal_start.y), (self.new_animal_end.x, self.new_animal_end.y), (255, 255, 255))                
+            cv2.line(self.current_image, (int(self.new_animal_start.x), int(self.new_animal_start.y)), 
+                     (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                
     
     def poll_tracking_flow(self):
             
@@ -149,8 +172,8 @@ class Gui:
             ret, self.current_frame = self.video.read()
             self.draw_image()
             self.update_image()         
-            
-            self.set_image(self.filtered_image_container, e.filtered_image)            
+            self.set_image(self.filtered_image_container, 
+                           fit_image(e.filtered_image, self.filtered_image_width, self.filtered_image_height))            
             
         self.root.after(100, self.poll_tracking_flow)
 
@@ -181,25 +204,25 @@ class Gui:
             self.on_new_video()
         
     def on_left_mouse_button_down(self, event):  
-        self.new_animal_start.x = event.x
-        self.new_animal_start.y = event.y
+        self.new_animal_start.x = event.x - self.image_dx
+        self.new_animal_start.y = event.y - self.image_dy
         self.adding_new_animal = True
 
     def on_left_mouse_button_up(self, event):
         if self.adding_new_animal:
-            self.new_animal_end.x = event.x
-            self.new_animal_end.y = event.y
             self.adding_new_animal = False
-            self.tracking.add_animal(self.new_animal_start.x / self.scale_factor, self.new_animal_start.y / self.scale_factor, 
-                                     self.new_animal_end.x / self.scale_factor, self.new_animal_end.y / self.scale_factor)
+            self.new_animal_end.x = event.x - self.image_dx
+            self.new_animal_end.y = event.y - self.image_dy
+            self.tracking.add_animal(self.new_animal_start.x / self.image_scale_factor, self.new_animal_start.y / self.image_scale_factor, 
+                                     self.new_animal_end.x / self.image_scale_factor, self.new_animal_end.y / self.image_scale_factor)
             self.draw_image()
             self.update_image()            
     
     
     def on_mouse_moved(self, event):
         if self.adding_new_animal:
-            self.new_animal_end.x = event.x
-            self.new_animal_end.y = event.y
+            self.new_animal_end.x = event.x - self.image_dx
+            self.new_animal_end.y = event.y - self.image_dy
             self.draw_image()
             self.update_image()
 

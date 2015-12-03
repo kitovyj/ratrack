@@ -34,7 +34,7 @@ class BodyPart:
         #print(self.center.x)
         #print(self.center.y)
         #print(self.radius)
-        cv2.circle(matrix, (self.center.x, self.center.y), self.radius, (0.5), -1)
+        cv2.circle(matrix, (int(self.center.x), int(self.center.y)), int(self.radius), (0.5), -1)
         
     def shift(self, matrix):        
         sum_x = 0
@@ -61,8 +61,8 @@ class BodyPart:
     # todo: add mitex synchronization to preperties retrieval methods
         
     def get_center(self):
-        return self.Center(self.center.x / self.params.scale_factor - tracking_border, 
-                           self.center.y / self.params.scale_factor - tracking_border)
+        return self.Center((self.center.x - tracking_border) / self.params.scale_factor, 
+                           (self.center.y - tracking_border) / self.params.scale_factor)
 
     def get_radius(self):
         return self.original_radius
@@ -222,7 +222,7 @@ class Animal:
                 local_max = 0
                 if rest:
                     new_weight_matrix = np.copy(weight_matrix)
-                    cv2.circle(new_weight_matrix, (x, y), int(part.radius), (0.0), -1)                    
+                    cv2.circle(new_weight_matrix, (x, y), int(part.radius), (0.3), -1)                    
                     (local_max, local_max_config) = self.do_fit(matrix, rest, new_config, new_weight_matrix)
                 else:
                     local_max_config = new_config
@@ -331,7 +331,7 @@ class Tracking:
         if not ret:
             print('can\'t read the video')
             sys.exit()
-        
+                    
         # calculate the rectangle enclosing the first animal body - will use it for color band 
         # calculation
 
@@ -339,28 +339,38 @@ class Tracking:
 
         left_x, right_x, top_y, bottom_y = 0, 0, 0, 0
 
-        if animal.head.center.x < animal.back.center.x:
-            left_x = animal.head.center.x - animal.head.radius - tracking_border
-            right_x = animal.back.center.x + animal.back.radius - tracking_border
+        back_center = animal.back.get_center()
+        back_radius = animal.back.get_radius()
+        head_center = animal.head.get_center()
+        head_radius = animal.head.get_radius()
+                
+        if head_center.x < back_center.x:
+            left_x = head_center.x - head_radius
+            right_x = back_center.x + back_radius
         else:
-            right_x = animal.head.center.x + animal.head.radius - tracking_border
-            left_x = animal.back.center.x - animal.back.radius - tracking_border
+            right_x = head_center.x + head_radius
+            left_x = back_center.x - back_radius
 
-        if animal.head.center.y < animal.back.center.y:
-            top_y = animal.head.center.y - animal.head.radius - tracking_border
-            bottom_y = animal.back.center.y + animal.back.radius - tracking_border
+        if head_center.y < back_center.y:
+            top_y = head_center.y - head_radius
+            bottom_y = back_center.y + back_radius
         else:
-            bottom_y = animal.head.center.y + animal.head.radius - tracking_border
-            top_y = animal.back.center.y - animal.back.radius - tracking_border
+            bottom_y = head_center.y + head_radius
+            top_y = back_center.y - back_radius
     
         roi = frame[top_y:bottom_y, left_x:right_x]
-        hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
+
+        hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+#        hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+
+        mask = cv2.inRange(hsv_roi, np.array((0.)), np.array((255.)))        
+#        mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
         #    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,200.)))
 
-        roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
+#        roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
+        roi_hist = cv2.calcHist([hsv_roi], [0], mask, [255], [0,255] )
         
-        cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
+        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     
         # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
         term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
@@ -372,8 +382,15 @@ class Tracking:
            border = tracking_border   
            frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, (0, 0, 0))
   
-           hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-           dst = cv2.calcBackProject([hsv], [2], roi_hist, [0,180], 1)  
+           frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+           # frame =  cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+           
+#           dst = cv2.calcBackProject([frame], [2], roi_hist, [0,180], 1)  
+#           dst = cv2.calcBackProject([frame], [0], roi_hist, [0,255], 1)  
+           #mask = cv2.inRange(hsv_roi, np.array((0.)), np.array((255.)))        
+           
+#           dst = frame
+           dst = (255 - frame)
     
            rows, cols = dst.shape[:2]
     
