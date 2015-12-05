@@ -222,7 +222,7 @@ class Animal:
                 local_max = 0
                 if rest:
                     new_weight_matrix = np.copy(weight_matrix)
-                    cv2.circle(new_weight_matrix, (x, y), int(part.radius), (0.3), -1)                    
+                    cv2.circle(new_weight_matrix, (x, y), int(part.radius), (0.7), -1)                    
                     (local_max, local_max_config) = self.do_fit(matrix, rest, new_config, new_weight_matrix)
                 else:
                     local_max_config = new_config

@@ -42,6 +42,15 @@ def fit_image(image, width, height):
         
     return cv2.resize(image, (int(cols), int(rows)))
 
+# silly python code to set button size in pixels
+def create_button(root, ptext, pcommand, px, py, pw, ph):
+    f = Tk.Frame(root, height = ph, width = pw)
+    f.pack_propagate(0) # don't shrink
+    f.place(x = px, y = py)
+    button = Tk.Button(f, text = ptext, command = pcommand)    
+    button.pack(fill = Tk.BOTH, expand = 1)
+    return button
+
 class Gui:
     
     tracking_flow = Queue.Queue()    
@@ -72,7 +81,7 @@ class Gui:
     def __init__(self):
     
         self.root = Tk.Tk()
-        self.root.geometry('1200x600')
+        self.root.geometry('1200x460')
     
         self.image_container = Tk.Label(self.root)
         self.image_container.place(x = 180, y = 20)
@@ -91,19 +100,16 @@ class Gui:
         self.filtered_image_container.config(image = self.filtered_image_container.image)
         self.filtered_image_container.config(relief = Tk.GROOVE, width = self.filtered_image_width, height = self.filtered_image_height)
 
-        self.quit_button = Tk.Button(self.root, text = "Quit", command = self.quit)
-        self.quit_button.place(x = 5, y = 100)
-        self.start_button = Tk.Button(self.root, text = "Start", command = self.start)
-        self.start_button.place(x = 5, y = 50)
-        self.select_file_button = Tk.Button(self.root, text = "Select file", command = self.select_file)
-        self.select_file_button.place(x = 5, y = 10)
+        self.select_file_button = create_button(self.root, "Select file", self.select_file, 8, 25, 160, 30)
+        self.start_button = create_button(self.root, "Start", self.start, 8, 60, 160, 30)
+        self.quit_button = create_button(self.root, "Quit", self.quit, 8, 100, 160, 30)
 
         self.on_new_video()
         
         self.max_video_position_slider_value = 100
         self.slider = Tk.Scale(self.root, length = 500, from_ = 0, to = self.max_video_position_slider_value, 
                   orient = Tk.HORIZONTAL, command = self.on_video_position_changed)                  
-        self.slider.place(x = 180, y = 500)
+        self.slider.place(x = 180, y = 400)
         
     def on_new_video(self):
         self.video = cv2.VideoCapture(self.video_file_name)
@@ -178,7 +184,7 @@ class Gui:
         self.root.after(100, self.poll_tracking_flow)
 
     def on_video_position_changed(self, val):        
-        max = self.video.get(cv2.CAP_PROP_FRAME_COUNT);
+        max = self.video.get(cv2.CAP_PROP_FRAME_COUNT) - 1;
         self.current_frame_number = max * float(val) / self.max_video_position_slider_value
         self.video.set(cv2.CAP_PROP_POS_FRAMES, self.current_frame_number)
         ret, frame = self.video.read()
