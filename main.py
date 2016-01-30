@@ -11,6 +11,7 @@ import tkFileDialog
 from PIL import Image, ImageTk
 
 from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement, curr_cos
+import geometry
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
 
@@ -85,8 +86,7 @@ class Gui:
     #video_file_name = 'videotest.avi'
     #c:\radboud\ratrack\videos\2014-03-22_20-57-44.avi
     video_file_name = 'c:/radboud/ratrack/videos/2014-03-22_20-57-44.avi'
-        
-    
+            
     video = 0    
     
     adding_new_animal = False
@@ -227,12 +227,16 @@ class Gui:
         c.x = c.x * self.image_scale_factor
         c.y = c.y * self.image_scale_factor
         return c;        
+
+    def bodypart_radius(self, bp):
+        r = bp.get_radius()
+        return r * self.image_scale_factor
     
     def draw_bodypart(self, bp):
+        white = (255, 255, 255)
         c = self.bodypart_center(bp)
-        r = bp.get_radius()
         cv2.circle(self.current_image, (int(c.x), int(c.y)), 
-                   int(r * self.image_scale_factor), (255, 255, 255))
+                   int(self.bodypart_radius(bp)), white)
             
     def draw_animals(self):
         for a in self.tracking.animals.animals:
@@ -246,26 +250,81 @@ class Gui:
                     self.draw_bodypart(a.mount)    
 
             if self.check_show_posture.var.get():
+                
                 hc = self.bodypart_center(a.head)
                 fc = self.bodypart_center(a.front)
                 bc = self.bodypart_center(a.back)
+                
+                hr = self.bodypart_radius(a.head)
+                fr = self.bodypart_radius(a.front)
+                br = self.bodypart_radius(a.back)
+
+                fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)
+                fbd = geometry.distance(fc.x, fc.y, bc.x, bc.y)
+                
+                h = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+                b = geometry.point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
+                                
                 white = (255, 255, 255)
-                cv2.line(self.current_image, (int(bc.x), int(bc.y)), 
+                green = (0, 255, 0)
+                
+                cv2.line(self.current_image, (int(b[0]), int(b[1])), 
                          (int(fc.x), int(fc.y)), white)
                 cv2.line(self.current_image, (int(fc.x), int(fc.y)), 
-                         (int(hc.x), int(hc.y)), white)                                    
+                         (int(h[0]), int(h[1])), white)                                    
+
+                cv2.circle(self.current_image, (int(fc.x), int(fc.y)), 2, green)                
                 
+                ahd = fhd - 4
+                if ahd < 0:
+                    ahd = 0
+                
+                arrow_head = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
+                arrow_line1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                          arrow_head[0], arrow_head[1], 5)
+                arrow_line2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                          arrow_head[0], arrow_head[1], -5)
+                                
+                cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                         (int(arrow_line1[0]), int(arrow_line1[1])), white)
+                cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                         (int(arrow_line2[0]), int(arrow_line2[1])), white)
+                    
                 
     def draw_image(self):
 
         #self.current_image = self.current_frame.copy()        
         self.current_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB);        
+          
+        #frame = self.current_image
+
+        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        
+        #roi = frame[171:(171 + 105), 322:(322 + 65)]        
+
+        #hist_size = 16
+
+        #roi_hist = cv2.calcHist([roi], [0, 1, 2], None, [hist_size, hist_size, hist_size], [0, 256, 0, 256, 0, 256] )        
+        #cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+        #frame = cv2.calcBackProject([frame], [0, 1, 2], roi_hist, [0, 256, 0, 256, 0, 256], 2)  
+#        ret, frame = cv2.threshold(frame, 1, 255, cv2.THRESH_BINARY)
+        
+
+#        roi_hist = cv2.calcHist([roi], [0, 1], None, [180, 256], [0, 180, 0, 256] )        
+#        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
+#        frame = cv2.calcBackProject([frame], [0, 1], roi_hist, [0, 180, 0, 256], 1)  
+        
+        
+#        self.current_image = frame
+        
+#        self.current_image = roi
+        
         self.current_image = fit_image(self.current_image, self.image_width, self.image_height)
         
         self.draw_animals()
         if self.adding_new_animal:
             cv2.line(self.current_image, (int(self.new_animal_start.x), int(self.new_animal_start.y)), 
-                     (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                
+                     (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                                                 
     
     def poll_tracking_flow(self):
             
@@ -280,7 +339,27 @@ class Gui:
             
             self.draw_image()
             self.update_image()
+
+            animal = self.tracking.animals.animals[0]
             
+            hc = animal.head.get_center()
+            fc = animal.front.get_center()
+            
+            dx = hc.x - fc.x
+            dy = hc.y - fc.y
+            length = math.sqrt(dx**2 + dy**2)
+            cos = - dy / length
+            angle = math.acos(cos) * 180 / math.pi            
+            if dx < 0:
+                angle = -angle
+            
+            rc = (self.image_width / 2, self.image_height / 2)
+            rotation_matrix = cv2.getRotationMatrix2D(rc, angle, 1.0);
+            rotated = cv2.warpAffine(self.current_image, rotation_matrix, 
+                                     (self.image_width, self.image_height))
+
+            self.set_image(self.direction_image_container, rotated)            
+                                   
             width = self.filtered_image_container.winfo_width()
             height = self.filtered_image_container.winfo_height()
             self.set_image(self.filtered_image_container, 

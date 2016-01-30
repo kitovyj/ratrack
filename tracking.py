@@ -5,12 +5,15 @@ import math
 import threading
 import Queue
 import pdb
+import geometry
 
 tracking_border = 20
 tracking_resolution_width = 320
 tracking_resolution_height = 240
 
 curr_cos = 0
+
+# histogram usage: http://opencvpython.blogspot.nl/2013/03/histograms-4-back-projection.html
 
 def resize(frame):
     width = tracking_resolution_width
@@ -92,29 +95,6 @@ class BodyPart:
     def get_radius(self):
         return self.original_radius
         
-
-def point_along_a_line(start_x, start_y, end_x, end_y, distance):
-
-    dx = start_x - end_x
-    dy = start_y - end_y
-    x = 0
-    y = 0
-    if dx != 0:
-        k = float(dy) / float(dx)
-        point_dx = math.sqrt(distance**2 / (1 + k**2))
-        if dx < 0:
-            point_dx *= -1
-        point_dy = point_dx * k        
-        x = end_x + point_dx
-        y = end_y + point_dy        
-    else:
-        x = end_x
-        if dy < 0:
-            y = end_y - distance
-        else:
-            y = end_y + distance
-    return (x, y)                 
-
 animal_n = 0
 
 class Animal:
@@ -156,12 +136,15 @@ class Animal:
         if animal_n == 0:
             total = total + 2*mount_radius
 
-        back_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(back_radius) / total)
-        front_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + front_radius) / total)
-        head_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + 2*front_radius + head_radius) / total)
+        back_position = geometry.point_along_a_line(end_x, end_y, start_x, 
+                                                    start_y, length * float(back_radius) / total)
+        front_position = geometry.point_along_a_line(end_x, end_y, 
+                                                     start_x, start_y, length * float(2*back_radius + front_radius) / total)
+        head_position = geometry.point_along_a_line(end_x, end_y, 
+                                                    start_x, start_y, length * float(2*back_radius + 2*front_radius + head_radius) / total)
 
-        mount_position = point_along_a_line(start_x, start_y, end_x, end_y, length * float(2*back_radius + 2*front_radius + 2*head_radius + mount_radius) / total)
-
+        mount_position = geometry.point_along_a_line(end_x, end_y, 
+                                                     start_x, start_y, length * float(2*back_radius + 2*front_radius + 2*head_radius + mount_radius) / total)
 
         if animal_n == 0:
             self.mount = BodyPart(params, int(mount_position[0]), int(mount_position[1]), mount_radius)
@@ -311,23 +294,9 @@ class Animal:
                 self.s = 0
                 return self.next()        
 
-    def cosine(self, x1, y1, x2, y2, x3, y3)                    :
-        sx1 = x1 - x2
-        sy1 = y1 - y2
-        sx2 = x3 - x2
-        sy2 = y3 - y2
-        dot = sx1 * sx2 + sy1 * sy2
-        a = math.sqrt(sx1**2 + sy1**2)
-        b = math.sqrt(sx2**2 + sy2**2)
-        if a * b != 0:
-            cos = dot / (a * b)
-            return cos
-        else:
-            return 0        
-
     def do_track(self, matrix, weight_matrix, parts):
 
-        #print(self.cosine(self.back.center.x, self.back.center.y, self.front.center.x, self.front.center.y, self.head.center.x, self.head.center.y))
+        #print(geometry.cosine(self.back.center.x, self.back.center.y, self.front.center.x, self.front.center.y, self.head.center.x, self.head.center.y))
 
         new_weight_matrix = np.copy(weight_matrix)
 
@@ -389,7 +358,7 @@ class Animal:
                                continue
                                           
                        if idx == 2:
-                           cos = self.cosine(parts[idx - 2].center.x, parts[idx - 2].center.y, parts[idx - 1].center.x, parts[idx - 1].center.y, x, y)
+                           cos = geometry.cosine(parts[idx - 2].center.x, parts[idx - 2].center.y, parts[idx - 1].center.x, parts[idx - 1].center.y, x, y)
                            if cos > 0.1:
                                continue
 #                           else:
@@ -397,7 +366,7 @@ class Animal:
                        if idx == 1:
                            dx = float(x - p.center.x)
                            dy = float(y - p.center.y)                           
-                           cos = self.cosine(parts[idx - 1].center.x, parts[idx - 1].center.y, x, y, parts[idx + 1].center.x + dx, parts[idx + 1].center.y + dy)
+                           cos = geometry.cosine(parts[idx - 1].center.x, parts[idx - 1].center.y, x, y, parts[idx + 1].center.x + dx, parts[idx + 1].center.y + dy)
                            if cos > 0.1:
                                continue                               
 
@@ -643,35 +612,42 @@ class Tracking:
     
         roi = frame[top_y:bottom_y, left_x:right_x]
 
-        hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+#        hsv_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 #        hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
-        mask = cv2.inRange(hsv_roi, np.array((0.)), np.array((255.)))        
+#        mask = cv2.inRange(roi, np.array((0., 0., 0.)), np.array((255., 255., 255.)))        
 #        mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,50.)))
         #    mask = cv2.inRange(hsv_roi, np.array((0., 0., 0.)), np.array((255.,255.,200.)))
 
 #        roi_hist = cv2.calcHist([hsv_roi], [2], mask, [180], [0,180] )
-        roi_hist = cv2.calcHist([hsv_roi], [0], mask, [255], [0,255] )
+        #roi_hist = cv2.calcHist([roi], [0, 1, 2], None, [256, 256, 256], [0, 256, 0, 256, 0, 256] )
+        hist_size = 16
+        roi_hist = cv2.calcHist([roi], [0, 1, 2], None, [hist_size, hist_size, hist_size], [0, 256, 0, 256, 0, 256] )        
         
         cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
     
         # Setup the termination criteria, either 10 iteration or move by atleast 1 pt
-        term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
+        # term_crit = ( cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 1 )
             
         while(not time_to_stop.isSet()):
                
            if not run_semaphore.isSet():
                next_frame_semaphore.wait()
                next_frame_semaphore.clear()               
+
+#           frame = cv2.calcBackProject([frame], [0, 1, 2], roi_hist, [0, 256, 0, 256, 0, 256], 1)  
+           frame = cv2.calcBackProject([frame], [0, 1, 2], roi_hist, [0, 256, 0, 256, 0, 256], 10)  
                
            frame = resize(frame)
 
            border = tracking_border   
+
            frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, (0, 0, 0))
   
-           frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+#           frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+#           frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-           frame = (255 - frame)           
+#           frame = (255 - frame)           
 #           frame = cv2.adaptiveThreshold(frame, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 7, 0)
 #           ret, frame = cv2.threshold(frame, 215, 255, cv2.THRESH_BINARY)
 #           ret, frame = cv2.threshold(frame, 215, 255, cv2.THRESH_BINARY)
@@ -679,7 +655,6 @@ class Tracking:
            
            # frame =  cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
            
-#           dst = cv2.calcBackProject([frame], [2], roi_hist, [0,180], 1)  
 #           dst = cv2.calcBackProject([frame], [0], roi_hist, [0,255], 1)  
            #mask = cv2.inRange(hsv_roi, np.array((0.)), np.array((255.)))        
            
