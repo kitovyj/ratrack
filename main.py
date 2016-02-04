@@ -10,8 +10,10 @@ import tkFileDialog
 
 from PIL import Image, ImageTk
 
-from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement, curr_cos
+from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement
 import geometry
+from geometry import Point
+
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
 
@@ -80,6 +82,8 @@ class Gui:
     run_tracking_semaphore = threading.Event()
 
     current_frame_number = 0
+    
+    current_animal_positions = []
 
     tracking_thread = 0
     
@@ -143,6 +147,9 @@ class Gui:
         control_y = control_y + check_height + buttons_space                                                                                  
         self.check_show_posture = create_check(self.root, "Show posture", 1, self.on_show_posture,
                                              buttons_left_margin, control_y, buttons_width, buttons_height)
+        control_y = control_y + check_height + buttons_space                                                                                  
+        self.check_show_rotated = create_check(self.root, "Show rotated frames", 1, self.on_show_rotated,
+                                               buttons_left_margin, control_y, buttons_width, buttons_height)
         
         self.root.update()
         self.arrange_controls(self.root.winfo_width(), self.root.winfo_height())
@@ -222,73 +229,137 @@ class Gui:
     def update_image(self):
         self.set_image(self.image_container, self.current_image)            
     
-    def bodypart_center(self, bp):
-        c = bp.get_center()
-        c.x = c.x * self.image_scale_factor
-        c.y = c.y * self.image_scale_factor
-        return c;        
+    def project(self, pos):
+        r = Point(pos.x * self.image_scale_factor, pos.y * self.image_scale_factor)
+        return r;        
 
-    def bodypart_radius(self, bp):
+    def scaled_radius(self, bp):
         r = bp.get_radius()
         return r * self.image_scale_factor
     
-    def draw_bodypart(self, bp):
-        white = (255, 255, 255)
-        c = self.bodypart_center(bp)
-        cv2.circle(self.current_image, (int(c.x), int(c.y)), 
-                   int(self.bodypart_radius(bp)), white)
+    def draw_bodypart(self, bp, pos, color = (255, 255, 255)):
+        pos = self.project(pos)
+        cv2.circle(self.current_image, (int(pos.x), int(pos.y)), 
+                   int(self.scaled_radius(bp)), color)
             
     def draw_animals(self):
-        for a in self.tracking.animals.animals:
+        
+        for ap in self.current_animal_positions:
+            
+            white = (255, 255, 255)
+            green = (0, 255, 0)            
+            yellow = (255, 255, 0)
+            
+            a = ap[0]
+            p = ap[1]
 
             if self.check_show_model.var.get():
+
+                
                             
-                self.draw_bodypart(a.back)
-                self.draw_bodypart(a.front)
-                self.draw_bodypart(a.head)    
+                self.draw_bodypart(a.back, p.back)
+                self.draw_bodypart(a.front, p.front)
+                self.draw_bodypart(a.head, p.head)                
                 if a.mount != 0:
-                    self.draw_bodypart(a.mount)    
+                    self.draw_bodypart(a.mount, p.mount, yellow)    
+                    
+                hc = self.project(p.head)                
+                fc = self.project(p.front)
+                bc = self.project(p.back)
+                hr = self.scaled_radius(a.head)
+                fr = self.scaled_radius(a.front)
+                br = self.scaled_radius(a.back)
+                    
+                head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                               hc.x, hc.y, hr)
+                head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                               hc.x, hc.y, -hr)
+                front_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                fc.x, fc.y, fr)
+                front_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                fc.x, fc.y, -fr)
+                                                                
+                cv2.line(self.current_image, (int(head_p1[0]), int(head_p1[1])), 
+                         (int(front_p1[0]), int(front_p1[1])), white)
+                cv2.line(self.current_image, (int(head_p2[0]), int(head_p2[1])), 
+                         (int(front_p2[0]), int(front_p2[1])), white)
+                                                                                
+                front_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                                                                fc.x, fc.y, fr)
+                front_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                                                                fc.x, fc.y, -fr)
+                back_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                                                               bc.x, bc.y, br)
+                back_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                                                               bc.x, bc.y, -br)
+
+                cv2.line(self.current_image, (int(front_p1[0]), int(front_p1[1])), 
+                         (int(back_p1[0]), int(back_p1[1])), white)
+                cv2.line(self.current_image, (int(front_p2[0]), int(front_p2[1])), 
+                         (int(back_p2[0]), int(back_p2[1])), white)
+
+
 
             if self.check_show_posture.var.get():
                 
-                hc = self.bodypart_center(a.head)
-                fc = self.bodypart_center(a.front)
-                bc = self.bodypart_center(a.back)
-                
-                hr = self.bodypart_radius(a.head)
-                fr = self.bodypart_radius(a.front)
-                br = self.bodypart_radius(a.back)
+                hc = self.project(p.head)                
+                fc = self.project(p.front)
+                bc = self.project(p.back)
 
+                hr = self.scaled_radius(a.head)
+                fr = self.scaled_radius(a.front)
+                br = self.scaled_radius(a.back)
+                
                 fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)
                 fbd = geometry.distance(fc.x, fc.y, bc.x, bc.y)
                 
-                h = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
-                b = geometry.point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
-                                
-                white = (255, 255, 255)
-                green = (0, 255, 0)
+                if fhd >= fr and fbd >= br:
                 
-                cv2.line(self.current_image, (int(b[0]), int(b[1])), 
-                         (int(fc.x), int(fc.y)), white)
-                cv2.line(self.current_image, (int(fc.x), int(fc.y)), 
-                         (int(h[0]), int(h[1])), white)                                    
+                    h = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+                    b = geometry.point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
+                                                
+                    cv2.line(self.current_image, (int(b[0]), int(b[1])), 
+                             (int(fc.x), int(fc.y)), white)
+                    cv2.line(self.current_image, (int(fc.x), int(fc.y)), 
+                             (int(h[0]), int(h[1])), white)                                    
 
-                cv2.circle(self.current_image, (int(fc.x), int(fc.y)), 2, green)                
+                    cv2.circle(self.current_image, (int(fc.x), int(fc.y)), 2, green)                
                 
-                ahd = fhd - 4
-                if ahd < 0:
-                    ahd = 0
+                    ahd = fhd - 4
+                    if ahd < 0:
+                        ahd = 0
                 
-                arrow_head = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
-                arrow_line1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                          arrow_head[0], arrow_head[1], 5)
-                arrow_line2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                          arrow_head[0], arrow_head[1], -5)
+                    arrow_head = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], 5)
+                    arrow_line2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], -5)
                                 
-                cv2.line(self.current_image, (int(h[0]), int(h[1])), 
-                         (int(arrow_line1[0]), int(arrow_line1[1])), white)
-                cv2.line(self.current_image, (int(h[0]), int(h[1])), 
-                         (int(arrow_line2[0]), int(arrow_line2[1])), white)
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line1[0]), int(arrow_line1[1])), white)
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line2[0]), int(arrow_line2[1])), white)
+                else:
+                    
+                    hbd = geometry.distance(hc.x, hc.y, bc.x, bc.y)                          
+                    h = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, hbd + hr)
+                    b = geometry.point_along_a_line(hc.x, hc.y, bc.x, bc.y, hbd + br)
+                    cv2.line(self.current_image, (int(b[0]), int(b[1])), 
+                             (int(h[0]), int(h[1])), white)
+                    ahd = hbd - 4
+                    if ahd < 0:
+                        ahd = 0
+                    arrow_head = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], 5)
+                    arrow_line2 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], -5)
+                                
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line1[0]), int(arrow_line1[1])), white)
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line2[0]), int(arrow_line2[1])), white)
+                    
                     
                 
     def draw_image(self):
@@ -327,8 +398,12 @@ class Gui:
                      (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                                                 
     
     def poll_tracking_flow(self):
+
+        if self.time_to_stop.isSet():
+            return
             
         if not self.tracking_flow.empty():
+            
             e = self.tracking_flow.get()
             ret, self.current_frame = self.video.read()
 
@@ -336,47 +411,55 @@ class Gui:
             max = self.video.get(cv2.CAP_PROP_FRAME_COUNT) - 1
             
             self.slider.set((self.max_video_position_slider_value * frame_num) / max)            
-            
+            self.current_animal_positions = e.positions
             self.draw_image()
             self.update_image()
 
-            animal = self.tracking.animals.animals[0]
-            
-            hc = animal.head.get_center()
-            fc = animal.front.get_center()
-            
-            dx = hc.x - fc.x
-            dy = hc.y - fc.y
-            length = math.sqrt(dx**2 + dy**2)
-            cos = - dy / length
-            angle = math.acos(cos) * 180 / math.pi            
-            if dx < 0:
-                angle = -angle
-            
-            rc = (self.image_width / 2, self.image_height / 2)
-            rotation_matrix = cv2.getRotationMatrix2D(rc, angle, 1.0);
-            rotated = cv2.warpAffine(self.current_image, rotation_matrix, 
-                                     (self.image_width, self.image_height))
+            if self.check_show_rotated.var.get():
 
-            self.set_image(self.direction_image_container, rotated)            
+                p = e.positions[0][1]
+            
+                hc = p.head
+                fc = p.front
+            
+                dx = hc.x - fc.y
+                dy = hc.x - fc.y
+                length = math.sqrt(dx**2 + dy**2)
+                if length != 0:
+                    cos = - dy / length
+                    angle = math.acos(cos) * 180 / math.pi            
+                    if dx < 0:
+                        angle = -angle
+                else:
+                    angle = 0
+            
+                rc = (self.image_width / 2, self.image_height / 2)
+                rotation_matrix = cv2.getRotationMatrix2D(rc, angle, 1.0);
+                rotated = cv2.warpAffine(self.current_image, rotation_matrix, 
+                                         (self.image_width, self.image_height))
+
+                self.set_image(self.direction_image_container, rotated)            
                                    
             width = self.filtered_image_container.winfo_width()
             height = self.filtered_image_container.winfo_height()
             self.set_image(self.filtered_image_container, 
                            fit_image(e.filtered_image, width, height))            
-
-            #rows, cols = e.weights[0].shape[:2]
-            #w = np.ones((rows, cols), np.float)
-            #w.fill(255)
-            #w = np.multiply(w, e.weights[0])
             
-            #self.set_image(self.filtered_image_container, 
-#                           fit_image(w, self.filtered_image_width, self.filtered_image_height))            
-            self.tracking_flow.task_done()                                       
+            '''
+            rows, cols = e.weights[0].shape[:2]
+            w = np.ones((rows, cols), np.float)
+            w.fill(255)
+            w = np.multiply(w, e.weights[0])
+            
+            self.set_image(self.filtered_image_container, 
+                           fit_image(w, width, height))            
+            '''
+            
+            #self.tracking_flow.task_done()                                       
 
             #print('flush')
             
-        self.root.after(30, self.poll_tracking_flow)
+        self.root.after(10, self.poll_tracking_flow)
 
     # controls events
 
@@ -455,8 +538,19 @@ class Gui:
 
     def quit(self):
         if self.tracking_thread != 0:
-            self.time_to_stop.set()        
+
+            self.time_to_stop.set()
+            
+            # clear the queue
+            while not self.tracking_flow.empty():
+                self.tracking_flow.get()
+                self.tracking_flow.task_done()                                       
+
+            self.next_frame_semaphore.set()
+            
+#            self.tracking_flow.task_done()
             self.tracking_thread.join()
+            
         self.root.quit()
 
     def select_file(self):
@@ -475,6 +569,11 @@ class Gui:
             self.draw_image()
             self.update_image()            
 
+    def on_show_rotated(self):
+        if self.state != self.gsNoVideoSelected:
+            self.draw_image()
+            self.update_image()            
+
     # mouse events    
         
     def on_left_mouse_button_down(self, event):  
@@ -488,8 +587,9 @@ class Gui:
             self.new_animal_end.x = event.x - self.image_dx
             self.new_animal_end.y = event.y - self.image_dy
             a = self.tracking.add_animal(self.new_animal_start.x / self.image_scale_factor, self.new_animal_start.y / self.image_scale_factor, 
-                                     self.new_animal_end.x / self.image_scale_factor, self.new_animal_end.y / self.image_scale_factor)
+                                         self.new_animal_end.x / self.image_scale_factor, self.new_animal_end.y / self.image_scale_factor)
             a.best_fit(self.current_frame)
+            self.current_animal_positions = self.tracking.animals.get_positions()
             self.draw_image()
             self.update_image()            
     

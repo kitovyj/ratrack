@@ -1,5 +1,12 @@
 import math
 
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    def copy(self):
+        return Point(self.x, self.y)
+
 def point_along_a_line(start_x, start_y, end_x, end_y, distance):
 
     dx = end_x - start_x
@@ -79,8 +86,13 @@ def cosine(x1, y1, x2, y2, x3, y3)                    :
     dot = sx1 * sx2 + sy1 * sy2
     a = math.sqrt(sx1**2 + sy1**2)
     b = math.sqrt(sx2**2 + sy2**2)
-    if a * b != 0:
-        cos = dot / (a * b)
+    prod = a * b
+    if prod != 0:
+        cos = dot / prod
+        if cos > 1.0:
+            cos = 1.0
+        elif cos < -1.0:
+            cos = -1.0
         return cos
     else:
         return 0        
