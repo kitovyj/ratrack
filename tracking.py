@@ -6,6 +6,7 @@ import threading
 import Queue
 import pdb
 import geometry
+import time
 
 from geometry import Point
 
@@ -14,6 +15,8 @@ tracking_resolution_width = 320
 tracking_resolution_height = 240
 
 curr_cos = 0
+
+max_animal_length = 55
 
 # histogram usage: http://opencvpython.blogspot.nl/2013/03/histograms-4-back-projection.html
 
@@ -47,20 +50,59 @@ class BodyPart:
     vx = 0.;
     vy = 0.;
     dx = 0.;
-    dy = 0.;                
+    dy = 0.;
+    area = 0.;
+    triangle = False;
+    prev = 0.;
+    mean_value = 0.;
         
-    def __init__(self, params, x, y, radius):
+    def __init__(self, params, x, y, radius, prev = 0., triangle = False):
         self.params = params
         self.center = Point(x * params.scale_factor + tracking_border, 
                             y * params.scale_factor + tracking_border)
         self.original_radius = radius
         self.radius = radius * params.scale_factor
+        if not triangle:
+            self.area = math.pi*(self.radius**2)
+        else:
+            self.area = (3. / 4) * math.sqrt(3) * (self.radius**2)
+            
+        self.triangle = triangle
+        self.prev = prev        
+        
+        extra_space = 5
+        mass_center_filter_size = int(self.radius * 2 + 1 + extra_space)
+        mass_center_filter_center = (mass_center_filter_size + 1) / 2
+        self.mass_center_filter = np.ones((mass_center_filter_size, mass_center_filter_size), np.float)
+        
+        for i in xrange(0, mass_center_filter_size):
+            for j in xrange(0, mass_center_filter_size):
+                dist = geometry.distance(i, j, mass_center_filter_center, mass_center_filter_center)
+                self.mass_center_filter[i, j] = (self.radius - dist) / self.radius
+        
 
     def set_weights(self, matrix, weight):        
-        #print(self.center.x)
-        #print(self.center.y)
-        #print(self.radius)
-        cv2.circle(matrix, (int(self.center.x), int(self.center.y)), int(self.radius), weight, -1)
+        if not self.triangle:
+            cv2.circle(matrix, (int(self.center.x), int(self.center.y)), int(self.radius), weight, -1)
+        else:
+            hc = self.center
+            fc = self.prev.center
+            hr = self.radius
+            fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)        
+
+            side = math.sqrt(3.) * hr
+            height = 3. * hr / 2.
+
+            top = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+            bottom = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - height / 2)
+          
+            left = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                        bottom[0], bottom[1], side / 2)
+            right = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                         bottom[0], bottom[1], -side / 2)
+                                                         
+            cv2.fillConvexPoly(matrix, np.array([list(top), list(left), list(right)], 'int32'), weight)
+        
         
     def shift(self, matrix):        
         sum_x = 0
@@ -92,6 +134,13 @@ class BodyPart:
 
     def get_radius(self):
         return self.original_radius
+        
+    def get_inner_radius(self):
+        if self.triangle:            
+            return self.radius / 2
+        else:
+            return self.radius
+        
                 
 animal_n = 0
 
@@ -101,6 +150,7 @@ class AnimalPosition:
         self.front = 0
         self.back = 0
         self.mount = 0
+        self.mount1 = 0
 
 class Animal:
     
@@ -111,17 +161,54 @@ class Animal:
             self.y = y
             self.value = val # cover value
 
+    class VertebraPosition:
+        def __init__(self, x, y, value):
+            self.center = geometry.Point(x, y)            
+            self.value = value
+            
+    class Vertebra:
+        def __init__(self, x, y, value):
+            self.center = geometry.Point(x, y)            
+            self.value = value
+        def clone(self):
+            return Animal.Vertebra(self.center.x, self.center.y, self.value)
+                                    
+    backbone = []            
+    
+    vertebra_dist = 7
+    
+    contours = None
+
     # deduce body parts positions from back-to-front vector
     def __init__(self, params, start_x, start_y, end_x, end_y):
+
+        global animal_n
         
         self.params = params        
+        self.max_vertebra = max_animal_length / self.vertebra_dist
         
-        global animal_n
+        self.mount_visible = True
+        self.mount1_visible = True
+        self.animal_number = animal_n + 1
 
-        head_radius = 6 / params.scale_factor
-        front_radius = 7 / params.scale_factor
-        back_radius = 9 / params.scale_factor
+        hr = 6
+
+        self.front_min_value_coeff = 0.5 
+        self.back_min_value_coeff = 0.5
+
+        if animal_n >= 1:
+            self.front_min_value_coeff = 0.5
+        else:
+            self.max_vertebra = self.max_vertebra + 2
+            
+            hr = 8
+
+
+        head_radius = hr / params.scale_factor # 15
+        front_radius = 7 / params.scale_factor # 17.5
+        back_radius = 9 / params.scale_factor # 22.5
         mount_radius = 6 / params.scale_factor
+        mount1_radius = 5 / params.scale_factor
 
         
 #        head_radius = 4 / params.scale_factor
@@ -139,7 +226,7 @@ class Animal:
         total = 2*back_radius + 2*front_radius + 2*head_radius
         
         if animal_n == 0:
-            total = total + 2*mount_radius
+            total = total + 2*mount_radius + 2*mount1_radius
 
         back_position = geometry.point_along_a_line(end_x, end_y, start_x, 
                                                     start_y, length * float(back_radius) / total)
@@ -151,31 +238,128 @@ class Animal:
         mount_position = geometry.point_along_a_line(end_x, end_y, 
                                                      start_x, start_y, length * float(2*back_radius + 2*front_radius + 2*head_radius + mount_radius) / total)
 
+        mount1_position = geometry.point_along_a_line(end_x, end_y, 
+                                                      start_x, start_y, length * float(2*back_radius + 2*front_radius + 2*head_radius + 2*mount_radius + mount1_radius) / total)
+
+
         if animal_n == 0:
             self.mount = BodyPart(params, int(mount_position[0]), int(mount_position[1]), mount_radius)
+            self.mount1 = BodyPart(params, int(mount1_position[0]), int(mount1_position[1]), mount1_radius)
         else:
             self.mount = 0
+            self.mount1 = 0
 
-        self.head = BodyPart(params, int(head_position[0]), int(head_position[1]), head_radius)
-        self.front = BodyPart(params, int(front_position[0]), int(front_position[1]), front_radius)
         self.back = BodyPart(params, int(back_position[0]), int(back_position[1]), back_radius)
+        self.front = BodyPart(params, int(front_position[0]), int(front_position[1]), front_radius)
+        self.head = BodyPart(params, int(head_position[0]), int(head_position[1]), head_radius, self.front)
+#        self.head = BodyPart(params, int(head_position[0]), int(head_position[1]), head_radius, self.front, self.mount == 0)
+        
+        start_x =  start_x * params.scale_factor + tracking_border
+        start_y =  start_y * params.scale_factor + tracking_border
+        end_x =  end_x * params.scale_factor + tracking_border
+        end_y =  end_y * params.scale_factor + tracking_border
+                
+        max_dist = geometry.distance(end_x, end_y, start_x, start_y)
+        
+        dist = 0
+        
+        if max_dist < self.vertebra_dist * 2:
+            max_dist = self.vertebra_dist * 2
 
+        print(len(self.backbone))
+        
+        self.backbone = []
+        
+        while dist <= max_dist:            
+            mount_position = geometry.point_along_a_line(end_x, end_y, start_x, start_y, dist)            
+            self.backbone.append(self.Vertebra(mount_position[0], mount_position[1], 0))            
+            dist = dist + self.vertebra_dist            
+            
+        self.central_vertebra_index = 1
+            
         animal_n = animal_n + 1;
         
+        mass_center_filter_size = 20
+        mass_center_filter_center = mass_center_filter_size / 2
+        self.mass_center_filter = np.ones((mass_center_filter_size, mass_center_filter_size), np.float)
+                
+        for i in xrange(0, mass_center_filter_size):
+            for j in xrange(0, mass_center_filter_size):
+                if i != mass_center_filter_center or j != i:
+                    dist = geometry.distance(i, j, mass_center_filter_center, mass_center_filter_center)
+                    if dist < 10:
+                        self.mass_center_filter[i, j] = 1. / (dist)
+                    else:
+                        self.mass_center_filter[i, j] = 0
+        
     def get_position(self):        
+        r = AnimalPosition()
+        r.backbone = []
+        for v in self.backbone:
+            r.backbone.append(self.VertebraPosition((v.center.x - tracking_border) / self.params.scale_factor, 
+                                                    (v.center.y - tracking_border) / self.params.scale_factor, v.value))
+        r.central_vertebra_index = self.central_vertebra_index
+        r.head = self.head.get_position()
+        r.front = self.front.get_position()
+        r.back = self.back.get_position()
+        if self.mount != 0:
+            r.mount = self.mount.get_position()
+        if self.mount1 != 0:
+            r.mount1 = self.mount1.get_position()
+            
+        return r
+                
+        '''
         r = AnimalPosition()
         r.head = self.head.get_position()
         r.front = self.front.get_position()
         r.back = self.back.get_position()
-        if self.mount:
+        if self.mount != 0:
             r.mount = self.mount.get_position()
+        if self.mount1 != 0:
+            r.mount1 = self.mount1.get_position()
         return r
+        '''
                                     
     def shift(self, matrix):        
         self.front.shift(matrix)
         self.back.shift(matrix)        
 
     def set_weights_no_mount(self, matrix, weight):        
+        
+        if not (self.contours is None):
+            rows, cols = self.contours.shape[:2]            
+            np.multiply(matrix, self.contours[1:rows - 1, 1:cols - 1], matrix)
+            
+
+        '''
+        max_val = -1
+        min_val = -1
+                
+        for v in self.backbone:
+            if v.value > max_val:
+                max_val = v.value
+            if min_val == -1 or v.value < min_val:
+                min_val = v.value
+     
+        val_delta = max_val - min_val
+
+        start_radius = 12 + 2
+        end_radius = 9 + 2
+        radii_delta = start_radius - end_radius
+        step = float(start_radius - end_radius) / len(self.backbone)
+        r = start_radius
+
+        for v in self.backbone:
+            if val_delta != 0:
+                r = end_radius + radii_delta * (v.value - min_val) / val_delta
+            else:
+                r = start_radius
+            cv2.circle(matrix, (int(v.center.x), int(v.center.y)), int(r), weight, -1)            
+#            r = r - step
+        '''
+
+        '''
         self.front.set_weights(matrix, weight)        
         self.back.set_weights(matrix, weight)
         self.head.set_weights(matrix, weight)
@@ -186,11 +370,27 @@ class Animal:
         hr = self.head.radius
         fr = self.front.radius
         br = self.back.radius
+
+        if self.head.triangle:
         
-        head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                       hc.x, hc.y, hr)
-        head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                       hc.x, hc.y, -hr)
+            head_side = math.sqrt(3.) * hr
+            head_height = 3. * hr / 2.
+
+            fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)                
+            head_bottom = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - head_height / 2)
+                    
+            head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                           head_bottom[0], head_bottom[1], head_side / 2)
+            head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                           head_bottom[0], head_bottom[1], -head_side/2)
+                                                           
+        else:
+            
+            head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                           hc.x, hc.y, hr)
+            head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                           hc.x, hc.y, -hr)
+        
         front_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                         fc.x, fc.y, fr)
         front_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y,                                                                                                                 
@@ -207,45 +407,102 @@ class Animal:
         back_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
                                                        bc.x, bc.y, -br)
         cv2.fillConvexPoly(matrix, np.array([list(back_p1), list(front_p1), list(front_p2), list(back_p2)], 'int32'), weight)
+        '''
         
 
-    def set_weights(self, matrix, weight, mount_weight):        
-        if self.mount != 0:
-            self.mount.set_weights(matrix, weight)
-        self.set_weights_no_mount(matrix, weight)
-
+    def set_weights(self, matrix, weight, mount_weight):
+        self.set_weights_no_mount(matrix, weight)                
+        '''
+        if self.mount != 0 and self.mount_visible:
+            self.mount.set_weights(matrix, mount_weight)
+        if self.mount1 != 0 and self.mount1_visible:
+            self.mount1.set_weights(matrix, mount_weight)
+        '''
+#        self.set_weights_no_mount(matrix, weight)
+        
+    def mean_value(self, matrix, bp):
+        radius = bp.radius
+        center_x = bp.center.x
+        center_y = bp.center.y
+        area = math.pi * (radius**2)
+        mask = np.zeros((int(radius*2) + 1, int(radius*2) + 1), np.float)        
+        cv2.circle(mask, (int(radius), int(radius)), int(radius), (1.0), -1)                    
+        masked = np.multiply(mask, matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])
+        return masked.sum() / area
+                
     def weight(self, matrix, center_x, center_y, radius, weight_matrix):
 
         mask = np.zeros((int(radius*2) + 1, int(radius*2) + 1), np.float)        
         cv2.circle(mask, (int(radius), int(radius)), int(radius), (1.0), -1)                    
-        masked = np.multiply(mask, matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])
-        weighted =  np.multiply(masked, weight_matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])
+        weighted_mask = np.multiply(mask, weight_matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])
+        weighted =  np.multiply(weighted_mask, matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])        
+        return (weighted.sum(), weighted_mask.sum());
+
+    def triangle_weight(self, matrix, center_x, center_y, radius, org_x, org_y, weight_matrix, added_height = 0.):
+                 
+        mask = np.zeros((int((radius + added_height)*2) + 1, int((radius + added_height)*2) + 1), np.float)        
+                        
+        hc = Point(center_x, center_y)            
+        fc = Point(org_x, org_y)
+        hr = radius
+        fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)        
+
+        side = math.sqrt(3.) * hr
+        height = 3. * hr / 2.
+
+        top = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr + added_height)
+        bottom = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - height / 2)
+          
+        left = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                    bottom[0], bottom[1], side / 2 + added_height)
+        right = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                     bottom[0], bottom[1], - side / 2 - added_height)
+                                                                     
+        ref = (- center_x + radius + added_height, - center_y + radius + added_height)
+
+        top = tuple(np.add(top, ref))
+        left = tuple(np.add(left, ref))
+        right = tuple(np.add(right, ref))
+            
+        cv2.fillConvexPoly(mask, np.array([list(top), list(left), list(right)], 'int32'), 1.0)
+                                                               
+        radius = radius + added_height                                                               
         
-        return weighted.sum();
+        weighted_mask = np.multiply(mask, weight_matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])
+        weighted =  np.multiply(weighted_mask, matrix[int(center_y - radius): int(center_y + radius) + 1, int(center_x - radius):int(center_x + radius) + 1])        
+
+        return (weighted.sum(), weighted_mask.sum());
 
 
     def bfcover(self, matrix, center_x, center_y, part, weight_matrix):        
         inner = self.weight(matrix, center_x, center_y, part.radius, weight_matrix)
-        return inner
+        return inner[0]
 
-    def cover(self, matrix, center_x, center_y, part, weight_matrix, minus_weight_matrix):
-        outer_r = part.radius + 2
-        area_inner = math.pi * (part.radius**2)
-        area_outer = math.pi * (outer_r**2)
-        inner = self.weight(matrix, center_x, center_y, part.radius, weight_matrix)
-#        inner1 = self.weight(matrix, center_x, center_y, part.radius, minus_weight_matrix)
-#        outer = self.weight(matrix, center_x, center_y, outer_r, minus_weight_matrix)        
-        r =  inner
-
-#        r =  inner - 0.5 * (outer - inner1)
-                
-                
-#        r = (inner / area_inner)
-#        r = r / (300. + ((outer - inner1) / (area_outer - area_inner)) )  
+    def cover(self, matrix, center_x, center_y, part, weight_matrix, subtract_surroundings = False):
+        if not part.triangle:
+            inner = self.weight(matrix, center_x, center_y, part.radius, weight_matrix)
+            if not subtract_surroundings:        
+                if inner[1] == 0:
+                    return (0.0, inner[1])
+                return (inner[0] / inner[1], inner[1])
+            outer_r = part.radius + 4
+            outer = self.weight(matrix, center_x, center_y, outer_r, weight_matrix)        
+            val = (inner[0] - 0.5*(outer[0] - inner[0]))
+            if inner[1] == 0:
+                return (0.0, inner[1])
+            return (val / inner[1], inner[1])
+        else:
+            inner = self.triangle_weight(matrix, center_x, center_y, part.radius, part.prev.center.x, part.prev.center.y, weight_matrix)
+            outer = self.triangle_weight(matrix, center_x, center_y, part.radius, part.prev.center.x, part.prev.center.y, weight_matrix, 4)
+            if not subtract_surroundings:        
+                if inner[1] == 0:
+                    return (0.0, inner[1])
+                return (inner[0] / inner[1], inner[1])                
+            val = (inner[0] - 0.5*(outer[0] - inner[0]))
+            if inner[1] == 0:
+                return (0.0, inner[1])
+            return (val / inner[1], inner[1])
         
-        return r;        
-        
-
     # recursive brute force "best fit"
     def do_fit(self, matrix, parts, configuration, weight_matrix):
 
@@ -351,292 +608,409 @@ class Animal:
                 self.s = 0
                 return self.next()        
 
-    def do_track(self, matrix, weight_matrix, parts):
+    def align_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
 
-        #print(geometry.cosine(self.back.center.x, self.back.center.y, self.front.center.x, self.front.center.y, self.head.center.x, self.head.center.y))
-
-        new_weight_matrix = np.copy(weight_matrix)
-
-#        print('aaaa\n')
-#        pdb.set_trace()
-#        max_diff = 0.001
-        max_diff = 0.0001
-
-        for idx, p in enumerate(parts):    
-    
-           p.dx = 0
-           p.dy = 0
-           
-           minus_weight_matrix = np.copy(weight_matrix)           
-
-#           for p1 in parts:    
-#               if p1 != p:
-#                   cv2.circle(minus_weight_matrix, (p1.center.x, p1.center.y), int(p1.radius), 0.0, -1)
-
-#           if self.mount != 0:
-#               cv2.circle(minus_weight_matrix, (int(round(self.mount.center.x)), int(round(self.mount.center.y))), int(self.mount.radius), 0.0, -1)
-           
-#           new_value = self.cover(matrix, int(p.center.x + p.vx), int(p.center.y + p.vy), p, new_weight_matrix)
-           
-           if p == self.front:                           
-             w = 0.5
-             cv2.circle(new_weight_matrix, (self.back.center.x, self.back.center.y), int(self.back.radius), w, -1)
-           elif p == self.head:
-             w = 0.5
-             cv2.circle(new_weight_matrix, (self.back.center.x, self.back.center.y), int(self.back.radius), w, -1)
-             cv2.circle(new_weight_matrix, (self.front.center.x, self.front.center.y), int(self.front.radius), w, -1)
-           
-           new_value = self.cover(matrix, int(p.center.x), int(p.center.y), p, new_weight_matrix, minus_weight_matrix)
-           delta = new_value - p.value           
-           p.value = new_value
-                      
-           min_dist = 2
-           max_dist = 5
-
-           if p == self.head:                           
-               max_dist = 7
-           elif p == self.front:
-               max_dist = 7
-           else:
-               max_dist = 7
-             
-           
-           if idx > 0:
-               prev = parts[idx - 1]
-               dfp = math.sqrt((p.center.x - prev.center.x)**2 + (p.center.y - prev.center.y)**2)
-               if dfp < (prev.radius + p.radius):
-                   min_dist = ((prev.radius + p.radius) - dfp)
-                   
-           if min_dist >= max_dist:
-               max_dist = min_dist + 1
-                      
-           if min_dist > 0 or (delta <  0. and (- delta / p.value) > max_diff) :
-               
-              # print('bbb')
-               
-#               scanner = self.Scanner(int(p.center.x + p.vx), int(p.center.y + p.vy))
-               scanner = self.Scanner(int(p.center.x), int(p.center.y))
-               best_x = p.center.x
-               best_y = p.center.y
-               
-               best_val = new_value
-               best_pk = 1.
-               
-               while True:
-                   
-                   (x, y) = scanner.next()
-
-                   dist = math.sqrt((p.center.x - x)**2 + (p.center.y - y)**2)
-
-                   '''
-                   if dist <= max_dist:                                              
-
-                       #if p == self.front:
-                       #    was = geometry.distance(self.head.center.x, self.head.center.y, self.front.center.x, self.front.center.y)
-                       #    now = geometry.distance(self.head.center.x, self.head.center.y, x, y)
-                       #    if now > was:
-                       #        continue
-                                 
-                       
-                       if p == self.back:
-                           was = geometry.distance(self.front.center.x, self.front.center.y, self.back.center.x, self.back.center.y)
-                           now = geometry.distance(self.front.center.x, self.front.center.y, x, y)
-                           if now > was:
-                               continue
-                   '''
-                                                                               
-                   
-                   delta = 0
-
-                   if dist <= max_dist:
-                       
-                       if idx > 0:
-                           prev = parts[idx - 1]
-                           dst = math.sqrt((prev.center.x - x)**2 + (prev.center.y - y)**2)
-                           if dst - (prev.radius + p.radius) > 1.5:
-                               continue
-                       
-                       if idx == 2:
-                           cos = geometry.cosine(parts[idx - 2].center.x, parts[idx - 2].center.y, parts[idx - 1].center.x, parts[idx - 1].center.y, x, y)
-                           if cos > 0.1:
-                               continue
-#                           else:
-#                               print(cos)
-                       if idx == 1:
-                           dx = float(x - p.center.x)
-                           dy = float(y - p.center.y)                           
-                           cos = geometry.cosine(parts[idx - 1].center.x, parts[idx - 1].center.y, x, y, parts[idx + 1].center.x + dx, parts[idx + 1].center.y + dy)
-                           if cos > 0.1:
-                               continue                               
-                                                                     
-                       rotation_coeff = 1.
- 
-                       if idx > 0:
-                           
-                           rotation_probability_front = [ 1.0, 0.9, 0.9, 0.5, 0.3, 0.2, 0.1, 0.0, 0.0, 
-                                                          0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0,0 ]
-                                 
-                           rotation_probability_head = [ 1.0, 0.9, 0.9, 0.9, 0.8, 0.8, 0.7, 0.6, 0.3, 
-                                                         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0,0]
-                                                         
-                           rotation_probability = rotation_probability_front
-                           
-                           if p == self.head:
-                               rotation_probability = rotation_probability_head                                                        
-                                 
-                           prev = parts[idx - 1]                   
-                           stretch = geometry.distance(x, y, prev.center.x, prev.center.y) 
-                           if stretch == 0: # can't be
-                               continue
-                           cosine = geometry.cosine(p.center.x, p.center.y, prev.center.x, prev.center.y, x, y)          
-                           #print cosine
-                           rotation_coeff = rotation_probability[int(min(round(math.acos(cosine) / (math.pi / 18)), 17))]
-#                           if prev == self.back and p == self.front:
-#                               print math.acos(cosine) * 180 / math.pi
-                           #print rotation_coeff
-                           #if cosine < diff * 0.7 * math.sqrt((prev.radius + p.radius) / stretch):
-#                           if cosine < diff * 0.7 * math.pow((prev.radius + p.radius) / stretch, 1 / 4.):
-#                               continue
-
-                       stretch_coeff = 1.                    
-                       motion_coeff = 1.
-
-                       if idx > 0:
-                           stretch_probability = [ 1.0, 0.97, 0.9, 0.5, 0.3, 0.2, 0.1, 0.0, 0.0, 0,0 ]                           
-                           prev = parts[idx - 1]                   
-                           was = geometry.distance(p.center.x, p.center.y, prev.center.x, prev.center.y) 
-                           now = geometry.distance(x, y, prev.center.x, prev.center.y) 
-                           stretch = abs(was - now)
-                           stretch_coeff = stretch_probability[int(min(stretch, 9))]
-                       else:
-                           motion_probability = [ 1.0, 0.97, 0.95, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0,0 ]                           
-                           motion = geometry.distance(p.center.x, p.center.y, x, y) 
-                           motion_coeff = motion_probability[int(min(motion, 9))]
-
-                       pk = rotation_coeff * stretch_coeff * motion_coeff
-                       
-                       if pk < 0.1:
-                           continue
-                           
-                       new_vx = float(x - p.center.x)
-                       new_vy = float(y - p.center.y)
-
-                       minus_weight_matrix = np.copy(weight_matrix)           
-#                       for p1 in parts:
-#                           if p1 != p:
-#                               cv2.circle(minus_weight_matrix, (int(round(p1.center.x + new_vx)), int(round(p1.center.y + new_vy))), int(p1.radius), 0.0, -1)
-                       
- #                      if self.mount != 0:
-#                           cv2.circle(minus_weight_matrix, (int(round(self.mount.center.x)), int(round(self.mount.center.y))), int(self.mount.radius), 0.0, -1)
-
-                       cover = self.cover(matrix, x, y, p, new_weight_matrix, minus_weight_matrix)
-                                            
-                       new_value = cover * pk
-                       
-                       if new_value > best_val:
-                           best_val = new_value
-                           best_x = x
-                           best_y = y
-                           best_pk = pk
-                                                  
-                       
-                       delta = new_value - p.value           
-                   
-#                   if dist > min_dist and (dist > max_dist or delta > 0 or (- delta / p.value) < max_diff):
-#                   if dist > min_dist and (dist > max_dist or delta > 0 or (- delta / p.value) < max_diff):
-                   if dist > max_dist:
-                   
-                       # or (dist > 2. and (- delta / p.value) < 0.05 * dist):
-                       
-                       if dist > max_dist:
-                           new_value = best_val
-                           x = best_x
-                           y = best_y
-                       
-                       
-                       p.value = new_value / best_pk
-                       
-#                       if p == self.back:
-#                           print(new_value)
-#                           sys.stdout.flush()
-                           
-                       p.dx = x - p.center.x
-                       p.dy = y - p.center.y
-#                       p.vx = new_vx
-#                       p.vy = new_vy                           
-                       break                
-           else:
-               #if delta > 0:
-               p.value = new_value
-                   
-           for p1 in parts[idx:]:                                                  
-               p1.center.x = int(round(p1.center.x + p.dx))
-               p1.center.y = int(round(p1.center.y + p.dy))
-               
-               
-                   
-        if self.mount == 0:
-            return
+        max_angle = min(math.pi / len(self.backbone), math.pi / 6)
         
-        '''
-        minus_weight_matrix = np.copy(weight_matrix)           
-        self.set_weights_no_mount(minus_weight_matrix, 0.0)
-        '''
+        scan_range_min = self.vertebra_dist - 1
+        scan_range_max = self.vertebra_dist + 1        
         
-        new_weight_matrix = np.copy(weight_matrix)           
-        self.set_weights_no_mount(new_weight_matrix, 0.0)
-                   
- #       start_x = self.mount.center.x + self.head.dx
-#        start_y = self.mount.center.y + self.head.dy
-        start_x = self.head.center.x
-        start_y = self.head.center.y
-        
+        if prev == 0:               
+            start_x = v.center.x
+            start_y = v.center.y
+            scan_range_min = 0
+            scan_range_max = self.vertebra_dist + 1
+        else:
+            start_x = prev.center.x
+            start_y = prev.center.y
+            scan_range_min = self.vertebra_dist - 1
+            scan_range_max = self.vertebra_dist + 1
+           
         scanner = self.Scanner(int(start_x), int(start_y))
-        new_value = self.cover(matrix, int(start_x), int(start_y), self.mount, new_weight_matrix, new_weight_matrix)
-
+           
+        best_value = 0
         best_x = start_x
         best_y = start_y
-        best_val = new_value
-        
-        max_dist = self.head.radius*2
-#        max_dist = 4
-        
-        while True:                   
 
-            (x, y) = scanner.next()
-
-            dist_from_head = math.sqrt((self.head.center.x - x)**2 + (self.head.center.y - y)**2)
-            if dist_from_head > self.head.radius + self.mount.radius + 2:
-                break
-#                continue
+        first = True
+           
+        while True:               
             
-            new_value = self.cover(matrix, x, y, self.mount, new_weight_matrix, new_weight_matrix)
+            if not first:                       
+                (x, y) = scanner.next()            
+                if x < tracking_border or y < tracking_border or x > tracking_border + tracking_resolution_width or y > tracking_border + tracking_resolution_height:
+                    continue                
+            else:
+                (x, y) = (start_x, start_y)
+                first = False
+                   
+            dist = geometry.distance(x, y, start_x, start_y)
 
-            if new_value > best_val:
-                best_val = new_value
+            if dist > scan_range_max + 2:
+                break
+               
+            if dist < scan_range_min or dist > scan_range_max:
+                continue
+
+
+            rotation_inertia = 1.
+
+            # flexibility
+            if prev_prev != 0:
+                cosine = geometry.cosine(prev_prev.center.x, prev_prev.center.y, prev.center.x, prev.center.y, x, y)          
+                angle = math.acos(cosine)
+                if angle < math.pi * (140. / 180):
+                    continue
+               
+            if prev != 0:
+
+                cosine = geometry.cosine(v.center.x, v.center.y, prev.center.x, prev.center.y, x, y)          
+                angle = math.acos(cosine)
+                if angle > max_angle:
+                    continue
+                   
+                rotation_probability = [ 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 
+                                         0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 ]
+                                                         
+                rotation_inertia = rotation_probability[int(min(round(angle / (math.pi / 18)), 17))]
+                                                                           
+            stretch_inertia = 1.
+            motion_inertia = 1.
+               
+            if prev != 0:
+                stretch_probability = [ 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5, 0.5, 0.5 ]
+                was = geometry.distance(v.center.x, v.center.y, prev.center.x, prev.center.y) 
+                now = geometry.distance(x, y, prev.center.x, prev.center.y) 
+                stretch = abs(was - now)
+                stretch_inertia = stretch_probability[int(min(stretch, 9))]
+            else:
+                motion_probability = [ 1.0, 1.0, 1.0, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5, 0.5 ]                           
+                motion = geometry.distance(v.center.x, v.center.y, x, y) 
+                motion_inertia = motion_probability[int(min(motion, 9))]
+
+
+            inertia = rotation_inertia * stretch_inertia * motion_inertia    
+               
+            inertia = 1.
+            #inertia = math.pow(inertia, 1./6)
+               
+            value = matrix[y, x] * inertia
+                   
+            if value >= best_value:
                 best_x = x
                 best_y = y
-                                               
-            dist = math.sqrt((start_x - x)**2 + (start_y - y)**2)
+                best_value = value
+           
+         # end scan cycle
             
-            if dist > max_dist:
-                break            
-                        
-            
-        self.mount.center.x = best_x
-        self.mount.center.y = best_y
+        return (best_x, best_y, best_value)            
         
-        
-            
-    def track(self, matrix, weight_matrix):
+    def align_backbone(self, matrix, weight_matrix, original_backbone, ref_value, min_vertebra, prev, min_value_coeff):
 
+        central_value = 0
+        central_index = 0
+        
+        max_vertebra_to_add = 10
+        vertebra_added = 0
+
+        backbone = []        
+        for v in original_backbone:
+            backbone.append(v.clone())
+        
+        idx = 0
+        while idx < len(backbone):
+                           
+           v = backbone[idx]
+                               
+           if idx > 1:               
+               prev_prev = backbone[idx - 2]
+           else:
+               if idx == 1:
+                   prev_prev = prev
+               else:
+                   prev_prev = 0
+
+           if idx > 0:               
+               prev = backbone[idx - 1]
+               
+           if idx > 0:
+               
+               (best_x, best_y, best_value) = self.align_vertebra(matrix, backbone, v, prev, prev_prev)
+           
+               if idx > min_vertebra and best_value < min_value_coeff * ref_value:
+                   if idx > min_vertebra:
+                       backbone = backbone[:idx]
+                   break
+
+               '''                
+               dist = geometry.distance(prev.center.x, prev.center.y, best_x, best_y)
+               do_break = False
+               for l in range(1, int(dist)):
+                   p = geometry.point_along_a_line(prev.center.x, prev.center.y, best_x, best_y, l)
+                   val = matrix[p[1], p[0]]
+                   min_val = min(best_value, prev.value)
+                   diff = abs(best_value - prev.value)
+                   if val < 0.95*min_val:
+                       #and abs(val - min_val) > 4*diff:
+                       if idx > min_vertebra:
+                           backbone = backbone[:idx]
+                       do_break = True
+                       break
+                   
+               if do_break:
+                   break
+               '''
+           
+               if best_value >= min_value_coeff * ref_value:
+              
+                   v.value = best_value
+           
+                   if best_value > central_value:
+                       central_value = best_value
+                       central_index = idx
+                           
+                   dx = best_x - v.center.x
+                   dy = best_y - v.center.y
+
+                   for v1 in backbone[idx:]:                                                  
+                       v1.center.x = int(round(v1.center.x + dx))
+                       v1.center.y = int(round(v1.center.y + dy))
+                       
+               else:                                      
+                   v.value = matrix[int(v.center.y), int(v.center.x)]
+                   break
+
+           # if it's the last vertebra, try to prolong the backbone...
+           if idx == len(backbone) - 1 and vertebra_added < max_vertebra_to_add:             
+              pvd = geometry.distance(prev.center.x, prev.center.y, v.center.x, v.center.y)
+              next_center = geometry.point_along_a_line(prev.center.x, prev.center.y, v.center.x, v.center.y, pvd + self.vertebra_dist)
+              backbone.append(self.Vertebra(next_center[0], next_center[1], 0))
+              vertebra_added = vertebra_added + 1
+            
+           idx = idx + 1
+
+        return (backbone, central_value, central_index)
+
+    def do_track(self, matrix, weight_matrix, backbone):
+                                 
+        cv = self.backbone[self.central_vertebra_index]
+        (best_x, best_y, reference_value) = self.align_vertebra(matrix, backbone, cv)
+        dx = best_x - cv.center.x
+        dy = best_y - cv.center.y
+        cv.value = reference_value
+        
+        # shift everything
+        
+        for v in self.backbone:
+            v.center.x = int(round(v.center.x + dx))
+            v.center.y = int(round(v.center.y + dy))
+                            
+        cvi = self.central_vertebra_index
+        
+        
+        if cvi > 0:
+            prev = self.backbone[cvi - 1]
+        else:
+            prev = 0
+                            
+        (new_front, front_val, front_index) = self.align_backbone(matrix, weight_matrix, self.backbone[cvi:], reference_value, 1, prev, self.front_min_value_coeff)
+
+        prev = self.backbone[cvi + 1]
+
+        (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(self.backbone[:cvi + 1]), reference_value, 0, prev, self.back_min_value_coeff)
+
+        self.central_vertebra_index = len(new_back) - 1
+
+        if back_val > reference_value:
+            reference_value = back_val
+            self.central_vertebra_index = len(new_back) - back_index - 1 
+        
+        if front_val > reference_value:
+            reference_value = front_val
+            self.central_vertebra_index = len(new_back) + front_index - 1
+                        
+                
+        backbone = list(reversed(new_back)) + new_front[1:]
+
+        if self.central_vertebra_index == len(backbone) - 1:
+            self.central_vertebra_index = len(backbone) - 2
+
+        if len(backbone) > self.max_vertebra: 
+            best_i = 0
+            best_sum = 0                                
+            
+            i = 0
+            for i in range(0, len(backbone) - self.max_vertebra - 1):
+                sum = 0
+                for j in range(0, self.max_vertebra):
+                    sum = sum + backbone[j].value
+                if sum > best_sum:
+                    best_sum = sum
+                    best_i = i
+            
+            backbone = backbone[best_i:best_i + self.max_vertebra]
+            
+            max_val = 0
+            max_i = 0
+            for idx, v in enumerate(backbone):
+                if v.value > max_val:
+                    max_val = v.value
+                    max_i = idx
+                    
+            if max_i == len(backbone) - 1:
+                max_i = max_i - 1
+            
+            self.central_vertebra_index = max_i
+            
+        return backbone
+              
+            
+    def align_body_part(self, raw_matrix, weight_matrix, bp, start_x, start_y, scan_range):
+
+        matrix1 = np.copy(raw_matrix)
+        matrix1 = matrix1.astype(float)                
+        matrix1 = cv2.filter2D(matrix1, -1, self.back.mass_center_filter)        
+                
+        scanner = self.Scanner(int(start_x), int(start_y))
+           
+        best_value = 0
+        best_x = start_x
+        best_y = start_y
+
+        first = True
+           
+        while True:               
+            
+            if not first:                       
+                (x, y) = scanner.next()
+            else:
+                (x, y) = (start_x, start_y)
+                first = False
+
+            dist = geometry.distance(x, y, start_x, start_y)
+                   
+            if dist > scan_range:
+                break
+            #inertia = math.pow(inertia, 1./6)
+               
+            value = matrix1[y, x]
+                   
+            if value >= best_value:
+                best_x = x
+                best_y = y
+                best_value = value
+        
+        bp.center.x = best_x
+        bp.center.y = best_y
+            
+    def track(self, raw_matrix, weight_matrix):
+
+        debug = []
+
+        matrix = np.copy(raw_matrix)
+        matrix = matrix.astype(float)        
+        matrix = np.multiply(matrix, weight_matrix)
+        matrix = cv2.filter2D(matrix, -1, self.mass_center_filter)        
+                        
+        debug_matrix = np.copy(matrix)
+        cv2.normalize(debug_matrix, debug_matrix, 0, 255, cv2.NORM_MINMAX)   
+        debug.append(("center of mass " + str(self.animal_number), debug_matrix))
+                
+        bb1 = []        
+        for v in self.backbone:
+            bb1.append(v.clone())
+                
+        self.backbone = self.do_track(matrix, weight_matrix, self.backbone)
+
+        # find countour
+        rows, cols = raw_matrix.shape[:2]
+        contour_mask = np.zeros((rows + 2, cols + 2), np.uint8)
+        contour_mask.fill(1)
+ 
+        u8weights = weight_matrix.astype(np.uint8)        
+        others = cv2.copyMakeBorder(u8weights, 1, 1, 1, 1, cv2.BORDER_CONSTANT, 0)
+        others = 1 - others
+        np.bitwise_or(contour_mask, others, contour_mask)                
+        
+        for v in self.backbone:
+            cv2.circle(contour_mask, (int(v.center.x), int(v.center.y)), 12, 0, -1)            
+        ff_flags = (4 | 2 << 8) | cv2.FLOODFILL_MASK_ONLY | cv2.FLOODFILL_FIXED_RANGE
+        for v in self.backbone:
+            val = raw_matrix[int(v.center.y), int(v.center.x)]
+            cv2.floodFill(raw_matrix, contour_mask, (v.center.x, v.center.y), 2, 0.5 * val, 1.2 * val, flags = ff_flags)
+        ret, contour_mask = cv2.threshold(contour_mask, 1, 1, cv2.THRESH_BINARY_INV)
+        
+        self.contours = contour_mask
+                
+        debug_matrix = np.copy(contour_mask)
+        cv2.normalize(debug_matrix, debug_matrix, 0, 255, cv2.NORM_MINMAX)   
+        debug_matrix = 255 - debug_matrix
+        debug.append(("body contour " + str(self.animal_number), debug_matrix))
+        
+            
+        
+
+        
+        '''
+        bbr = list(reversed(bb1))
+        
+        bbr = self.do_track(matrix, weight_matrix, bbr)
+        
+        if len(bbr) > len(self.backbone):
+            self.backbone = list(reversed(bbr))
+      
+        # align mounts
+        if self.mount != 0:
+        
+            matrix1 = np.copy(raw_matrix)
+            matrix1 = matrix1.astype(float)                
+            matrix1 = np.multiply(matrix1, weight_matrix)
+        
+            self.set_weights_no_mount(matrix1, 0.0)
+        
+            hc = self.backbone[-1].center
+            
+            self.head.center.x = hc.x
+            self.head.center.y = hc.y
+            
+            hmv = self.mean_value(raw_matrix, self.head)            
+            self.align_body_part(matrix1, weight_matrix, self.mount, hc.x, hc.y, self.head.radius + self.mount.radius);
+            mmv = self.mean_value(matrix1, self.mount)
+            self.mount_visible = mmv > 0.5 * hmv
+                                                
+
+            if self.mount_visible:
+                self.mount.set_weights(matrix1, 0.0)            
+                m1sx = self.mount.center.x
+                m1sy = self.mount.center.y
+                m1sr = self.mount.radius + self.mount1.radius
+            else:
+                m1sx = hc.x
+                m1sy = hc.y
+                m1sr = self.head.radius + self.mount1.radius
+                
+                
+            self.align_body_part(matrix1, weight_matrix, self.mount1, m1sx, m1sy, m1sr);
+
+            m1mv = self.mean_value(matrix1, self.mount1)
+            self.mount1_visible = m1mv > 0.5 * hmv
+        '''
+        
+        return debug
+        
+        '''
         cb1 = self.back.center.copy()
         cf1 = self.front.center.copy()
         ch1 = self.head.center.copy()
         cm1 = 0
+        cm11 = 0
+
         
         if self.mount != 0:
             cm1 = self.mount.center.copy()
+            
+        if self.mount1 != 0:
+            cm11 = self.mount1.center.copy()
         
         
         parts = [self.back, self.front, self.head]        
@@ -644,15 +1018,17 @@ class Animal:
 #            parts.append(self.mount)
 
 
-        self.do_track(matrix, weight_matrix, parts);        
+        sum1 = self.do_track(matrix, weight_matrix, parts);        
         
-        
+        '''
+        '''
         rows, cols = matrix.shape[:2];
         mask = np.zeros((rows, cols), np.float);
         self.set_weights_no_mount(mask, 1.);
         mpl = np.multiply(mask, matrix);       
         sum1 = mpl.sum();               
-        
+        ''' 
+        '''
                 
 #        sum1 = self.back.value + self.front.value + self.head.value;
 #        if self.mount != 0:
@@ -664,27 +1040,38 @@ class Animal:
         cf2 = self.front.center.copy()
         ch2 = self.head.center.copy()
         cm2 = 0
+        cm12 = 0
+        cm2v = self.mount_visible
+        cm12v = self.mount1_visible
         
         if self.mount != 0:
             cm2 = self.mount.center.copy()
+        if self.mount1 != 0:
+            cm12 = self.mount1.center.copy()
         
         self.back.center = cb1;
         self.front.center = cf1;
         self.head.center = ch1;
         if self.mount != 0:
             self.mount.center = cm1
+        if self.mount1 != 0:
+            self.mount1.center = cm11
         
         parts = [self.head, self.front, self.back]        
 #        if self.mount != 0:
 #            parts = [self.mount] + parts
         
-        self.do_track(matrix, weight_matrix, parts);        
+        sum2 = self.do_track(matrix, weight_matrix, parts);        
         
+        '''
+        '''
         rows, cols = matrix.shape[:2];
         mask = np.zeros((rows, cols), np.float);
         self.set_weights_no_mount(mask, 1.);
         mpl = np.multiply(mask, matrix);       
         sum2 = mpl.sum();               
+        '''
+        '''
         
 #        sum2 = self.back.value + self.front.value + self.head.value;
 #        if self.mount != 0:
@@ -697,7 +1084,11 @@ class Animal:
             self.head.center = ch2
             if self.mount != 0:
                 self.mount.center = cm2
-             
+                self.mount_visible = cm2v
+            if self.mount1 != 0:
+                self.mount1.center = cm12
+                self.mount1_visible = cm12v
+         '''  
             
 class Animals:
 
@@ -723,15 +1114,30 @@ class Animals:
 
         rows, cols = matrix.shape[:2]
         
-        weights = []
+        debug = []
         
+        weights = []
+
         for a in self.animals:
-            
-            weight_matrix = np.ones((rows, cols), np.float)
+                                                                        
+            weight = np.ones((rows, cols), np.float)                        
             
             for other in self.animals:                
                 if other != a:
-                    other.set_weights(weight_matrix, 0.0, 0.0)
+                    other.set_weights(weight, 0.0, 0.0)
+                    
+            debug_weight = np.copy(weight)
+            cv2.normalize(debug_weight, debug_weight, 0, 255, cv2.NORM_MINMAX)   
+            debug.append(("weights " + str(a.animal_number), debug_weight))
+            
+            weights.append(weight)
+                    
+        
+        for a, w in zip(self.animals, weights):
+                                                                        
+            
+                    
+#            cv2.normalize(new_matrix, new_matrix, 0, 255, cv2.NORM_MINMAX)
                     
             
 #            weights = np.ones((rows, cols), np.float)
@@ -744,9 +1150,22 @@ class Animals:
 #            else:
 #                cv2.imshow('weights1', weights);
 #                idx = 0
-                
-                    
-            a.track(matrix, weight_matrix)
+
+#            if a.back.mean_value == 0:                
+#                a.back.mean_value = a.mean_value(matrix, a.back)                
+
+#            mean = a.back.mean_value
+            #ret, a_matrix = cv2.threshold(matrix, mean * 0.95, 255, cv2.THRESH_TOZERO)            
+            #ret, a_matrix = cv2.threshold(a_matrix, mean, 255, cv2.THRESH_TRUNC)            
+            #cv2.normalize(a_matrix, a_matrix, 0, 255, cv2.NORM_MINMAX)
+            
+ #           a_matrix = matrix
+            
+                                
+            debug1 = a.track(matrix, w)
+            debug = debug + debug1
+
+#            a.back.mean_value = a.mean_value(matrix, a.back)                
 
             '''
             parts = [a.back, a.front, a.head]
@@ -766,17 +1185,21 @@ class Animals:
             '''
 
             
-            weights.append(weight_matrix)
-        
-        return weights
+#            weights.append(weight_matrix)
+            #new_matrix1 = np.copy(new_matrix)
+            #cv2.normalize(new_matrix, new_matrix1, 0, 255, cv2.NORM_MINMAX)
+#            weights.append(new_matrix1)
+#            weights.append(matrix)
+       
+        return debug
             
             
 class TrackingFlowElement:
                 
-    def __init__(self, positions, filtered_image, weights):
+    def __init__(self, positions, filtered_image, debug):
         self.positions = positions
         self.filtered_image = filtered_image  
-        self.weights = weights          
+        self.debug_frames = debug
 
 def calculate_scale_factor(frame_width, frame_height):
     width = tracking_resolution_width
@@ -792,50 +1215,47 @@ class Tracking:
 
     tracking_params = TrackingParams()
     
-    def __init__(self, frame_width, frame_height):            
+    def __init__(self, video_file_name):            
+        self.video = cv2.VideoCapture(video_file_name)
+        frame_width = self.video.get(cv2.CAP_PROP_FRAME_WIDTH)
+        frame_height = self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.tracking_params.scale_factor = calculate_scale_factor(frame_width, frame_height)        
         self.animals = Animals(self.tracking_params)
-
-    def add_animal(self, start_x, start_y, end_x, end_y):
         
-        return self.animals.add_animal(start_x, start_y, end_x, end_y)
-        
-    def do_tracking(self, video_file, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
+    def calculate_background(self):
 
-        pdb.set_trace()
-
-        if not self.animals.animals:
-            return
-
-        '''
-        video = cv2.VideoCapture(video_file)
-        ret, frame = video.read()
+        ret, frame = self.video.read()
         rows, cols = frame.shape[:2]
         bg = np.zeros((rows, cols, 3), np.uint32)
         total = 0
         while True:        
             bg = bg + frame            
             total = total + 1
-            ret, frame = video.read()
+            ret, frame = self.video.read()
             if ret == False:
                 break
             #if total > 10000:
-#                break
-        
+#                break        
         bg = bg / total
+        bg = bg.astype(np.uint8)        
+        return bg
+                
 
-        bg = bg.astype(np.uint8)
+    def add_animal(self, start_x, start_y, end_x, end_y):
         
-        cv2.imwrite('bg.tiff', bg)
-        '''
+        return self.animals.add_animal(start_x, start_y, end_x, end_y)
+        
+    def do_tracking(self, bg, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
 
-        bg = cv2.imread('bg.tiff')
+        pdb.set_trace()
+
+        if not self.animals.animals:
+            return
         
-        video = cv2.VideoCapture(video_file)
-        video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
+        self.video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
             
         # take current frame of the video
-        ret, frame = video.read()
+        ret, frame = self.video.read()
 
         if not ret:
             print('can\'t read the video')
@@ -886,7 +1306,8 @@ class Tracking:
                             [-1, -1, -1, -1, -1]]) / 8.0
                             
 #        mask = cv2.inRange(bg, np.array((0., 0., 0.)), np.array((55., 55., 55.)))                                            
-        mask = cv2.inRange(bg, np.array((0., 0., 0.)), np.array((75., 75., 75.)))                                            
+        mask = cv2.inRange(bg, np.array((0., 0., 0.)), np.array((75., 75., 75.)))
+                    
             
         while(not time_to_stop.isSet()):
                
@@ -920,6 +1341,8 @@ class Tracking:
 
            frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, 0)
            '''
+
+           debug = []
            
            frame = cv2.absdiff(frame, bg)
            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -931,19 +1354,20 @@ class Tracking:
                                
 #           frame = cv2.filter2D(frame, -1, sharpen)
            
-           ret, frame = cv2.threshold(frame, 60, 255, cv2.THRESH_TOZERO)
-#           cv2.normalize(frame, frame, 0, 255, cv2.NORM_MINMAX)
+           cv2.normalize(frame, frame, 0, 255, cv2.NORM_MINMAX)
+#           ret, frame = cv2.threshold(frame, 20, 255, cv2.THRESH_TOZERO)
+#           ret, frame = cv2.threshold(frame, 60, 255, cv2.THRESH_TOZERO)
 #           ret, frame = cv2.threshold(frame, 50, 255, cv2.THRESH_BINARY)
            
 #           frame = frame + mask/5
            
-           frame = resize(frame)
+           frame1 = resize(frame)
            
            border = tracking_border   
 
 #           frame = resize(frame)
 
-           frame = cv2.copyMakeBorder(frame, border, border, border, border, cv2.BORDER_CONSTANT, 0)
+           frame = cv2.copyMakeBorder(frame1, border, border, border, border, cv2.BORDER_CONSTANT, 0)
            
            
            
@@ -980,15 +1404,21 @@ class Tracking:
 #           dst = frame
     
            rows, cols = frame.shape[:2]
+           
+           debug.append(("source", frame))
     
-           weights = self.animals.track(frame)
-                                       
-           tracking_flow_element = TrackingFlowElement(self.animals.get_positions(), frame, weights)       
+           debug1 = self.animals.track(frame)
+           
+           debug = debug + debug1
+           
+           tracking_flow_element = TrackingFlowElement(self.animals.get_positions(), frame1, debug)       
            tracking_flow.put(tracking_flow_element)
  
            # read the next frame
-           ret, frame = video.read()    
+           ret, frame = self.video.read()    
 
+#           time.sleep(0.1) 
+           
            if ret == False:
                break
        
