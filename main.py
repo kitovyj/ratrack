@@ -17,6 +17,10 @@ from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement
 import geometry
 from geometry import Point
 
+import gui_tools
+
+import intruder
+import evelien
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
 
@@ -48,43 +52,16 @@ def fit_image(image, width, height):
         
     return cv2.resize(image, (int(cols), int(rows)))
 
-# silly tkinter code to set control size in pixels
-def create_button(root, ptext, pcommand, px, py, pw, ph):
-    f = Tk.Frame(root, height = ph, width = pw)
-    f.pack_propagate(0) # don't shrink
-    f.place(x = px, y = py)
-    button = Tk.Button(f, text = ptext, command = pcommand)    
-    button.pack(fill = Tk.BOTH, expand = 1)
-    return button
-
-def create_check(root, ptext, initial, pcommand, px, py, pw, ph):
-    f = Tk.Frame(root, height = ph, width = pw)
-    f.pack_propagate(0) # don't shrink
-    f.place(x = px, y = py)
-    var = Tk.IntVar()
-    var.set(initial)
-    control = Tk.Checkbutton(f, text = ptext, command = pcommand, variable = var)    
-    control.pack(fill = Tk.Y, expand = 1, anchor = Tk.W)
-    control.var = var
-    return control
-
-def create_listbox(root, px, py, pw, ph):
-    f = Tk.Frame(root, height = ph, width = pw)
-    f.pack_propagate(0) # don't shrink
-    f.place(x = px, y = py)
-    lb = Tk.Listbox(f)    
-    lb.pack(fill = Tk.BOTH, expand = 1)
-    return (f, lb)
-
 class Gui:
 
     # possible states definitions
-    gsNoVideoSelected = 1
-    gsNotStarted = 2
-    gsRunning = 3
-    gsPaused = 4
+    gs_no_video_selected = 1
+    gs_not_started = 2
+    gs_running = 3
+    gs_paused = 4
+    gs_adding_animal = 5
     
-    state = gsNoVideoSelected
+    state = gs_no_video_selected
     
     tracking_flow = Queue.Queue(20)    
     
@@ -104,7 +81,6 @@ class Gui:
             
     video = 0    
     
-    adding_new_animal = False
     new_animal_start = point()
     new_animal_end = point()
 
@@ -127,6 +103,11 @@ class Gui:
     debug_frame_containers = dict()
     
     draw_one_frame = False
+    
+    # evelien    
+    evelien_circle_center = None    
+    
+    analyzers = [ intruder.factory(), evelien.factory() ]
         
     def __init__(self):
         
@@ -144,32 +125,57 @@ class Gui:
         buttons_width = 160
         buttons_height = 30
         check_height = 16
+        radio_height = 12
+        label_height = 16
         buttons_space = 10        
 
         control_y = buttons_top_margin        
-        self.select_file_button = create_button(self.root, "Select file", self.select_file, 
-                                                buttons_left_margin, control_y, buttons_width, buttons_height)                                                
+        self.select_file_button = gui_tools.create_button(self.root, "Select file", self.select_file, 
+                                                          buttons_left_margin, control_y, buttons_width, buttons_height)                                                
         control_y = control_y + buttons_height + buttons_space                                                
-        self.calc_bg_button = create_button(self.root, "Calculate background", self.calculate_background, 
-                                            buttons_left_margin, control_y, buttons_width, buttons_height)                                                
+        self.calc_bg_button = gui_tools.create_button(self.root, "Calculate background", self.calculate_background, 
+                                                      buttons_left_margin, control_y, buttons_width, buttons_height)                                                
         control_y = control_y + buttons_height + buttons_space                                                
-        self.start_button = create_button(self.root, "Run", self.start, 
-                                          buttons_left_margin, control_y, buttons_width, buttons_height)                                          
+        self.start_button = gui_tools.create_button(self.root, "Run", self.start, 
+                                                    buttons_left_margin, control_y, buttons_width, buttons_height)                                          
         control_y = control_y + buttons_height + buttons_space                                          
-        self.next_button = create_button(self.root, "Next", self.next, 
-                                         buttons_left_margin, control_y, buttons_width, buttons_height)                                        
+        self.next_button = gui_tools.create_button(self.root, "Next", self.next, 
+                                                   buttons_left_margin, control_y, buttons_width, buttons_height)                                        
         control_y = control_y + buttons_height + buttons_space                                         
-        self.quit_button = create_button(self.root, "Quit", self.quit, 
-                                         buttons_left_margin, control_y, buttons_width, buttons_height)                                            
+        self.quit_button = gui_tools.create_button(self.root, "Quit", self.quit, 
+                                                   buttons_left_margin, control_y, buttons_width, buttons_height)                                            
         control_y = control_y + buttons_height + buttons_space                                                                                  
-        self.check_show_model = create_check(self.root, "Show model", 1, self.on_show_model,
-                                             buttons_left_margin, control_y, buttons_width, buttons_height)
+        self.check_show_model = gui_tools.create_check(self.root, "Show model", 1, self.on_show_model,
+                                                       buttons_left_margin, control_y, buttons_width, buttons_height)
         control_y = control_y + check_height + buttons_space                                                                                  
-        self.check_show_posture = create_check(self.root, "Show posture", 1, self.on_show_posture,
-                                             buttons_left_margin, control_y, buttons_width, buttons_height)
+        self.check_show_posture = gui_tools.create_check(self.root, "Show posture", 1, self.on_show_posture,
+                                                         buttons_left_margin, control_y, buttons_width, buttons_height)
         control_y = control_y + check_height + buttons_space                                                                                  
-        self.check_show_rotated = create_check(self.root, "Show rotated frames", 1, self.on_show_rotated,
-                                               buttons_left_margin, control_y, buttons_width, buttons_height)
+        self.check_show_rotated = gui_tools.create_check(self.root, "Show rotated frames", 1, self.on_show_rotated,
+                                                         buttons_left_margin, control_y, buttons_width, buttons_height)
+
+        control_y = control_y + check_height + buttons_space                                                                                  
+
+       
+        gui_tools.create_label(self.root, "Analyzers", 
+                               buttons_left_margin, control_y, buttons_width, buttons_height)
+       
+        control_y = control_y + label_height + buttons_space                             
+
+        self.analyzer_index = Tk.IntVar()
+        self.analyzer_index.set(1)
+
+        for i, a in enumerate(self.analyzers):
+            gui_tools.create_radio(self.root, a.name, self.analyzer_index, i,
+                                   buttons_left_margin, control_y, buttons_width, buttons_height)
+            control_y = control_y + radio_height + buttons_space
+                                    
+        control_y = control_y + buttons_space
+
+        self.configure_analyzer_button = gui_tools.create_button(self.root, "Configure", self.configure_analyzer,
+                                                                 buttons_left_margin, control_y, buttons_width, buttons_height)                                          
+                                                   
+        control_y = control_y + buttons_height + buttons_space                                          
         
         self.root.update()
         self.arrange_controls(self.root.winfo_width(), self.root.winfo_height())
@@ -195,7 +201,7 @@ class Gui:
         self.image_width = containers_width
         self.image_height = containers_height
         
-        if self.state != self.gsNoVideoSelected:
+        if self.state != self.gs_no_video_selected:
             rows, cols = self.current_frame.shape[:2]            
             (self.image_scale_factor, self.image_dx, self.image_dy) = calculate_scale_factor(cols, rows, self.image_width, self.image_height)
         
@@ -228,7 +234,8 @@ class Gui:
             self.direction_image_container.config(image = self.direction_image_container.image)
             self.direction_image_container.config(relief = Tk.GROOVE, width = containers_width, height = containers_height)
 
-            self.messages = create_listbox(self.root, left_panel_width + containers_width + containers_margin, top_panel_height + containers_height + containers_margin, containers_width, containers_height)
+            self.messages = gui_tools.create_listbox(self.root, left_panel_width + containers_width + containers_margin, 
+                                                     top_panel_height + containers_height + containers_margin, containers_width, containers_height)
 
             self.controls_created = True;
             
@@ -509,9 +516,38 @@ class Gui:
         self.current_image = fit_image(self.current_image, self.image_width, self.image_height)
         
         self.draw_animals()
-        if self.adding_new_animal:
+        if self.state == self.gs_adding_animal:
             cv2.line(self.current_image, (int(self.new_animal_start.x), int(self.new_animal_start.y)), 
                      (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                                                 
+
+        white = (255, 255, 255)
+        green = (0, 255, 0)            
+        red = (255, 0, 0)            
+        yellow = (255, 255, 0)
+
+        if not (self.evelien_circle_center is None):
+
+            center = self.evelien_circle_center.scaled(self.image_scale_factor)
+                         
+            cross_size = 5                                    
+                                    
+            cv2.line(self.current_image, (int(center.x - cross_size), int(center.y)),
+                     (int(center.x + cross_size), int(center.y)), white)
+            cv2.line(self.current_image, (int(center.x), int(center.y - cross_size)),
+                     (int(center.x), int(center.y + cross_size)), white)
+
+            radius = int(self.evelien_circle_radius * self.image_scale_factor)
+            cv2.circle(self.current_image, center.as_int_tuple(), radius, white)                            
+
+            cv2.line(self.current_image, (int(center.x), int(center.y - self.image_height)),
+                     (int(center.x), int(center.y - radius)), white)
+            cv2.line(self.current_image, (int(center.x), int(center.y + self.image_height)),
+                     (int(center.x), int(center.y + radius)), white)
+            cv2.line(self.current_image, (int(center.x + self.image_width), int(center.y)),
+                     (int(center.x + radius), int(center.y)), white)
+            cv2.line(self.current_image, (int(center.x - self.image_width), int(center.y)),
+                     (int(center.x - radius), int(center.y)), white)                        
+
     
     def poll_tracking_flow(self):
 
@@ -609,7 +645,7 @@ class Gui:
 
             #print('flush')
             
-        if self.state != self.gsPaused or self.draw_one_frame:
+        if self.state != self.gs_paused or self.draw_one_frame:
             self.root.after(10, self.poll_tracking_flow)
 
     # controls events
@@ -622,7 +658,7 @@ class Gui:
         
         self.video = cv2.VideoCapture(self.video_file_name)
 
-        self.state = self.gsNotStarted
+        self.state = self.gs_not_started
     
         max = self.video.get(cv2.CAP_PROP_FRAME_COUNT) - 1
         self.max_video_position_slider_value = max
@@ -658,7 +694,7 @@ class Gui:
         return bg_file_name + '-bg.tiff'
 
     def on_video_position_changed(self, val):
-        if self.state != self.gsNotStarted:
+        if self.state != self.gs_not_started:
             return
         max = self.video.get(cv2.CAP_PROP_FRAME_COUNT) - 1;
         self.current_frame_number = max * float(val) / self.max_video_position_slider_value
@@ -669,15 +705,15 @@ class Gui:
         self.update_image()
 
     def start(self):
-        if self.state == self.gsRunning:
+        if self.state == self.gs_running:
             self.start_button["text"] = "Run"
             self.run_tracking_semaphore.clear();
-            self.state = self.gsPaused
-        elif self.state == self.gsPaused:
+            self.state = self.gs_paused
+        elif self.state == self.gs_paused:
             self.start_button["text"] = "Pause"
             self.run_tracking_semaphore.set();
             self.next_frame_semaphore.set();
-            self.state = self.gsRunning
+            self.state = self.gs_running
             self.root.after(1, self.poll_tracking_flow)            
         else:            
             self.start_button["text"] = "Pause"
@@ -689,7 +725,7 @@ class Gui:
            #        self.tracking.do_tracking(self.video_file_name, self.current_frame_number, self.tracking_flow, self.time_to_stop);
             self.tracking_thread.start()
             self.poll_tracking_flow()
-            self.state = self.gsRunning
+            self.state = self.gs_running
 
     def next(self):
         self.draw_one_frame = True
@@ -726,18 +762,22 @@ class Gui:
             bg = self.tracking.calculate_background()                
             cv2.imwrite(self.get_bg_file_name(), bg)
 
+    def configure_analyzer(self):
+        a = self.analyzers[self.analyzer_index.get()]
+        a.create_configurator(self.root, self.current_frame)        
+
     def on_show_model(self):
-        if self.state != self.gsNoVideoSelected:
+        if self.state != self.gs_no_video_selected:
             self.draw_image()
             self.update_image()            
 
     def on_show_posture(self):
-        if self.state != self.gsNoVideoSelected:
+        if self.state != self.gs_no_video_selected:
             self.draw_image()
             self.update_image()            
 
     def on_show_rotated(self):
-        if self.state != self.gsNoVideoSelected:
+        if self.state != self.gs_no_video_selected:
             self.draw_image()
             self.update_image()            
 
@@ -746,11 +786,12 @@ class Gui:
     def on_left_mouse_button_down(self, event):  
         self.new_animal_start.x = event.x - self.image_dx
         self.new_animal_start.y = event.y - self.image_dy
-        self.adding_new_animal = True
+        self.state = self.gs_adding_animal
+            
 
     def on_left_mouse_button_up(self, event):
-        if self.adding_new_animal:
-            self.adding_new_animal = False
+        if self.state == self.gs_adding_animal:
+            self.state = self.gs_not_started
             self.new_animal_end.x = event.x - self.image_dx
             self.new_animal_end.y = event.y - self.image_dy
             a = self.tracking.add_animal(self.new_animal_start.x / self.image_scale_factor, self.new_animal_start.y / self.image_scale_factor, 
@@ -762,7 +803,7 @@ class Gui:
     
     
     def on_mouse_moved(self, event):
-        if self.adding_new_animal:
+        if self.state == self.gs_adding_animal:
             self.new_animal_end.x = event.x - self.image_dx
             self.new_animal_end.y = event.y - self.image_dy
             self.draw_image()

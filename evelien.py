@@ -1,9 +1,13 @@
-class EvelienAnalyzer:
-                    
-    def __init__(self):
-        self.a = 0        
+import evelien_configurator
+import evelien_analyzer
 
-    def analyze(self, tracking):        
-        self.b = 1        
+class factory:
+    
+    name = 'Evelien'
+                        
+    def create_configurator(self, root, frame):        
+        return evelien_configurator.EvelienConfigurator(root, frame)        
         
+    def create_analyzer(self):        
+        return evelien_analyzer.EvelienAnalyzer()        
     

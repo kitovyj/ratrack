@@ -6,6 +6,14 @@ class Point:
         self.y = y
     def copy(self):
         return Point(self.x, self.y)
+    def clone(self):
+        return self.copy()
+    def as_int_tuple(self):
+        return (int(self.x), int(self.y))
+    def scaled(self, factor, shift = 0):
+        return Point(self.x * factor + shift, self.y * factor + shift)
+    def as_int(self):
+        return Point(int(self.x), int(self.y))
 
 def point_along_a_line(start_x, start_y, end_x, end_y, distance):
 

@@ -193,8 +193,8 @@ class Animal:
 
         hr = 6
 
-        self.front_min_value_coeff = 0.5 
-        self.back_min_value_coeff = 0.5
+        self.front_min_value_coeff = 0.5
+        self.back_min_value_coeff = 0.8
 
         if animal_n >= 1:
             self.front_min_value_coeff = 0.5
@@ -327,10 +327,11 @@ class Animal:
 
     def set_weights_no_mount(self, matrix, weight):        
         
+        
         if not (self.contours is None):
             rows, cols = self.contours.shape[:2]            
             np.multiply(matrix, self.contours[1:rows - 1, 1:cols - 1], matrix)
-            
+         
 
         '''
         max_val = -1
@@ -357,8 +358,8 @@ class Animal:
                 r = start_radius
             cv2.circle(matrix, (int(v.center.x), int(v.center.y)), int(r), weight, -1)            
 #            r = r - step
+        
         '''
-
         '''
         self.front.set_weights(matrix, weight)        
         self.back.set_weights(matrix, weight)
@@ -611,6 +612,7 @@ class Animal:
     def align_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
 
         max_angle = min(math.pi / len(self.backbone), math.pi / 6)
+        flexibility_angle = math.pi - max_angle
         
         scan_range_min = self.vertebra_dist - 1
         scan_range_max = self.vertebra_dist + 1        
@@ -659,7 +661,7 @@ class Animal:
             if prev_prev != 0:
                 cosine = geometry.cosine(prev_prev.center.x, prev_prev.center.y, prev.center.x, prev.center.y, x, y)          
                 angle = math.acos(cosine)
-                if angle < math.pi * (140. / 180):
+                if angle < flexibility_angle:
                     continue
                
             if prev != 0:
@@ -710,7 +712,7 @@ class Animal:
         central_value = 0
         central_index = 0
         
-        max_vertebra_to_add = 10
+        max_vertebra_to_add = 1
         vertebra_added = 0
 
         backbone = []        
@@ -721,6 +723,8 @@ class Animal:
         while idx < len(backbone):
                            
            v = backbone[idx]
+
+           v.value = matrix[int(v.center.y), int(v.center.x)]
                                
            if idx > 1:               
                prev_prev = backbone[idx - 2]
@@ -736,20 +740,19 @@ class Animal:
            if idx > 0:
                
                (best_x, best_y, best_value) = self.align_vertebra(matrix, backbone, v, prev, prev_prev)
-           
-               if idx > min_vertebra and best_value < min_value_coeff * ref_value:
+               
+               if best_value < min_value_coeff * ref_value:
                    if idx > min_vertebra:
                        backbone = backbone[:idx]
                    break
-
-               '''                
+                               
                dist = geometry.distance(prev.center.x, prev.center.y, best_x, best_y)
                do_break = False
                for l in range(1, int(dist)):
                    p = geometry.point_along_a_line(prev.center.x, prev.center.y, best_x, best_y, l)
                    val = matrix[p[1], p[0]]
                    min_val = min(best_value, prev.value)
-                   diff = abs(best_value - prev.value)
+                   #diff = abs(best_value - prev.value)
                    if val < 0.95*min_val:
                        #and abs(val - min_val) > 4*diff:
                        if idx > min_vertebra:
@@ -759,27 +762,21 @@ class Animal:
                    
                if do_break:
                    break
-               '''
+               
            
-               if best_value >= min_value_coeff * ref_value:
-              
-                   v.value = best_value
+               v.value = best_value
            
-                   if best_value > central_value:
-                       central_value = best_value
-                       central_index = idx
+               if best_value > central_value:
+                   central_value = best_value
+                   central_index = idx
                            
-                   dx = best_x - v.center.x
-                   dy = best_y - v.center.y
+               dx = best_x - v.center.x
+               dy = best_y - v.center.y
 
-                   for v1 in backbone[idx:]:                                                  
-                       v1.center.x = int(round(v1.center.x + dx))
-                       v1.center.y = int(round(v1.center.y + dy))
+               for v1 in backbone[idx:]:                                                  
+                   v1.center.x = int(round(v1.center.x + dx))
+                   v1.center.y = int(round(v1.center.y + dy))
                        
-               else:                                      
-                   v.value = matrix[int(v.center.y), int(v.center.x)]
-                   break
-
            # if it's the last vertebra, try to prolong the backbone...
            if idx == len(backbone) - 1 and vertebra_added < max_vertebra_to_add:             
               pvd = geometry.distance(prev.center.x, prev.center.y, v.center.x, v.center.y)
@@ -806,8 +803,7 @@ class Animal:
             v.center.y = int(round(v.center.y + dy))
                             
         cvi = self.central_vertebra_index
-        
-        
+                
         if cvi > 0:
             prev = self.backbone[cvi - 1]
         else:
@@ -923,6 +919,17 @@ class Animal:
         self.backbone = self.do_track(matrix, weight_matrix, self.backbone)
 
         # find countour
+
+        blur = np.array([[1, 1, 1, 1, 1], 
+                         [1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1],
+                         [1, 1, 1, 1, 1]]) / 25.
+                         
+        #blurred = cv2.filter2D(raw_matrix, -1, blur)        
+        blurred = raw_matrix
+                         
+
         rows, cols = raw_matrix.shape[:2]
         contour_mask = np.zeros((rows + 2, cols + 2), np.uint8)
         contour_mask.fill(1)
@@ -932,12 +939,34 @@ class Animal:
         others = 1 - others
         np.bitwise_or(contour_mask, others, contour_mask)                
         
+        max_val = -1
+        min_val = -1
+                
         for v in self.backbone:
-            cv2.circle(contour_mask, (int(v.center.x), int(v.center.y)), 12, 0, -1)            
+            if v.value > max_val:
+                max_val = v.value
+            if min_val == -1 or v.value < min_val:
+                min_val = v.value
+     
+        val_delta = max_val - min_val
+
+        start_radius = 12
+        end_radius = 9
+        radii_delta = start_radius - end_radius
+        
+        for v in self.backbone:
+            if val_delta != 0:
+                r = end_radius + radii_delta * (v.value - min_val) / val_delta
+            else:
+                r = start_radius
+            cv2.circle(contour_mask, (int(v.center.x + 1), int(v.center.y + 1)), int(r), 0, -1)            
+            
+            
         ff_flags = (4 | 2 << 8) | cv2.FLOODFILL_MASK_ONLY | cv2.FLOODFILL_FIXED_RANGE
         for v in self.backbone:
-            val = raw_matrix[int(v.center.y), int(v.center.x)]
-            cv2.floodFill(raw_matrix, contour_mask, (v.center.x, v.center.y), 2, 0.5 * val, 1.2 * val, flags = ff_flags)
+            val = blurred[int(v.center.y), int(v.center.x)]
+            cv2.floodFill(blurred, contour_mask, (v.center.x, v.center.y), 2, 0.3 * val, 0.2 * val, flags = ff_flags)
+#            cv2.floodFill(blurred, contour_mask, (v.center.x, v.center.y), 2, 0.5 * val, 1.2 * val, flags = ff_flags)
         ret, contour_mask = cv2.threshold(contour_mask, 1, 1, cv2.THRESH_BINARY_INV)
         
         self.contours = contour_mask
