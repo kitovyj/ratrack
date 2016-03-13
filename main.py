@@ -13,9 +13,8 @@ import tkMessageBox
 
 from PIL import Image, ImageTk
 
-from tracking import Tracking, Animals, Animal, BodyPart, TrackingFlowElement
+import tracking
 import geometry
-from geometry import Point
 
 import gui_tools
 
@@ -23,10 +22,6 @@ import intruder
 import evelien
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
-
-class point:
-    def __init__( self, x = 0, y = 0):
-        self.x, self.y = x, y
         
 def calculate_scale_factor(src_width, src_height, dst_width, dst_height):
     k = float(src_width) / src_height
@@ -81,8 +76,8 @@ class Gui:
             
     video = 0    
     
-    new_animal_start = point()
-    new_animal_end = point()
+    new_animal_start = geometry.Point()
+    new_animal_end = geometry.Point()
 
     # initialized in arrange controls    
     image_width = 0
@@ -107,8 +102,18 @@ class Gui:
     # evelien    
     evelien_circle_center = None    
     
-    analyzers = [ intruder.factory(), evelien.factory() ]
-        
+    class AnalyzerState:
+        def __init__(self, factory):
+            self.factory = factory
+            self.configuration = factory.create_configuration()
+            self.decorator = factory.create_decorator(self.configuration)
+    
+    analyzer_states = [ None, AnalyzerState(intruder.factory()), AnalyzerState(evelien.factory()) ]        
+    # active analyzer
+    analyzer = None
+    
+    got_first_tracking_element = False
+            
     def __init__(self):
         
         # silly tkinter initialization
@@ -116,9 +121,10 @@ class Gui:
         self.root.withdraw()
         self.root = Tk.Toplevel()
         self.root.protocol("WM_DELETE_WINDOW", self.quit)        
-        
+
+        self.root.title("Rat tracking tool")        
         self.root.geometry(self.initial_geometry)
-        self.root.bind("<Configure>", self.on_root_resize)
+        self.root.bind("<Configure>", self.on_root_resize)    
     
         buttons_left_margin = 8
         buttons_top_margin = 25
@@ -163,11 +169,15 @@ class Gui:
         control_y = control_y + label_height + buttons_space                             
 
         self.analyzer_index = Tk.IntVar()
-        self.analyzer_index.set(1)
+        self.analyzer_index.set(2)
 
-        for i, a in enumerate(self.analyzers):
-            gui_tools.create_radio(self.root, a.name, self.analyzer_index, i,
-                                   buttons_left_margin, control_y, buttons_width, buttons_height)
+        for i, a in enumerate(self.analyzer_states):
+            if a is None:                
+                gui_tools.create_radio(self.root, 'None', self.analyzer_index, i,
+                                       buttons_left_margin, control_y, buttons_width, buttons_height)
+            else:
+                gui_tools.create_radio(self.root, a.factory.name, self.analyzer_index, i,
+                                       buttons_left_margin, control_y, buttons_width, buttons_height)
             control_y = control_y + radio_height + buttons_space
                                     
         control_y = control_y + buttons_space
@@ -234,7 +244,7 @@ class Gui:
             self.direction_image_container.config(image = self.direction_image_container.image)
             self.direction_image_container.config(relief = Tk.GROOVE, width = containers_width, height = containers_height)
 
-            self.messages = gui_tools.create_listbox(self.root, left_panel_width + containers_width + containers_margin, 
+            self.messages = gui_tools.create_textbox(self.root, left_panel_width + containers_width + containers_margin, 
                                                      top_panel_height + containers_height + containers_margin, containers_width, containers_height)
 
             self.controls_created = True;
@@ -263,7 +273,7 @@ class Gui:
         self.set_image(self.image_container, self.current_image)            
     
     def project(self, pos):
-        r = Point(pos.x * self.image_scale_factor, pos.y * self.image_scale_factor)
+        r = geometry.Point(pos.x * self.image_scale_factor, pos.y * self.image_scale_factor)
         return r;        
 
     def scaled_radius(self, bp):
@@ -289,13 +299,13 @@ class Gui:
         side = math.sqrt(3.) * hr
         height = 3. * hr / 2.
 
-        top = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
-        bottom = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - height / 2)
+        top = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+        bottom = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - height / 2)
         
   
-        left = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+        left = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                     bottom[0], bottom[1], side / 2)
-        right = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+        right = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                     bottom[0], bottom[1], -side / 2)
         
         cv2.line(self.current_image, (int(top[0]), int(top[1])), 
@@ -383,23 +393,23 @@ class Gui:
                     head_height = 3. * hr / 2.
 
                     fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)                
-                    head_bottom = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - head_height / 2)
+                    head_bottom = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - head_height / 2)
                     
-                    head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    head_p1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                    head_bottom[0], head_bottom[1], head_side / 2)
-                    head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    head_p2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                    head_bottom[0], head_bottom[1], -head_side/2)
                                                                    
                 else:
 
-                    head_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    head_p1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                    hc.x, hc.y, hr)
-                    head_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    head_p2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                    hc.x, hc.y, -hr)
                                                                    
-                front_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                front_p1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                 fc.x, fc.y, fr)
-                front_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                front_p2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                 fc.x, fc.y, -fr)
                                                                 
                 cv2.line(self.current_image, (int(head_p1[0]), int(head_p1[1])), 
@@ -407,13 +417,13 @@ class Gui:
                 cv2.line(self.current_image, (int(head_p2[0]), int(head_p2[1])), 
                          (int(front_p2[0]), int(front_p2[1])), white)
                                                                                 
-                front_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                front_p1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
                                                                 fc.x, fc.y, fr)
-                front_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                front_p2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
                                                                 fc.x, fc.y, -fr)
-                back_p1 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                back_p1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
                                                                bc.x, bc.y, br)
-                back_p2 = geometry.point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
+                back_p2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, bc.x, bc.y, 
                                                                bc.x, bc.y, -br)
 
                 cv2.line(self.current_image, (int(front_p1[0]), int(front_p1[1])), 
@@ -438,8 +448,8 @@ class Gui:
                 
                 if fhd >= fr and fbd >= br:
                 
-                    h = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
-                    b = geometry.point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
+                    h = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+                    b = geometry.Point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
                                                 
                     cv2.line(self.current_image, (int(b[0]), int(b[1])), 
                              (int(fc.x), int(fc.y)), white)
@@ -452,10 +462,10 @@ class Gui:
                     if ahd < 0:
                         ahd = 0
                 
-                    arrow_head = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
-                    arrow_line1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    arrow_head = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                        arrow_head[0], arrow_head[1], 3)
-                    arrow_line2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                    arrow_line2 = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
                                                                        arrow_head[0], arrow_head[1], -3)
                                 
                     cv2.line(self.current_image, (int(h[0]), int(h[1])), 
@@ -465,17 +475,17 @@ class Gui:
                 else:
                     
                     hbd = geometry.distance(hc.x, hc.y, bc.x, bc.y)                          
-                    h = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, hbd + hr)
-                    b = geometry.point_along_a_line(hc.x, hc.y, bc.x, bc.y, hbd + br)
+                    h = geometry.Point_along_a_line(bc.x, bc.y, hc.x, hc.y, hbd + hr)
+                    b = geometry.Point_along_a_line(hc.x, hc.y, bc.x, bc.y, hbd + br)
                     cv2.line(self.current_image, (int(b[0]), int(b[1])), 
                              (int(h[0]), int(h[1])), white)
                     ahd = hbd - 4
                     if ahd < 0:
                         ahd = 0
-                    arrow_head = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, ahd)
-                    arrow_line1 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                    arrow_head = geometry.Point_along_a_line(bc.x, bc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.Point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
                                                                        arrow_head[0], arrow_head[1], 3)
-                    arrow_line2 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                    arrow_line2 = geometry.Point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
                                                                        arrow_head[0], arrow_head[1], -3)
                                 
                     cv2.line(self.current_image, (int(h[0]), int(h[1])), 
@@ -487,67 +497,23 @@ class Gui:
                 
     def draw_image(self):
 
-        #self.current_image = self.current_frame.copy()        
         self.current_image = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB);        
-          
-        #frame = self.current_image
-
-        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        
-        #roi = frame[171:(171 + 105), 322:(322 + 65)]        
-
-        #hist_size = 16
-
-        #roi_hist = cv2.calcHist([roi], [0, 1, 2], None, [hist_size, hist_size, hist_size], [0, 256, 0, 256, 0, 256] )        
-        #cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-        #frame = cv2.calcBackProject([frame], [0, 1, 2], roi_hist, [0, 256, 0, 256, 0, 256], 2)  
-#        ret, frame = cv2.threshold(frame, 1, 255, cv2.THRESH_BINARY)
-        
-
-#        roi_hist = cv2.calcHist([roi], [0, 1], None, [180, 256], [0, 180, 0, 256] )        
-#        cv2.normalize(roi_hist, roi_hist, 0, 255, cv2.NORM_MINMAX)
-#        frame = cv2.calcBackProject([frame], [0, 1], roi_hist, [0, 180, 0, 256], 1)  
-        
-        
-#        self.current_image = frame
-        
-#        self.current_image = roi
         
         self.current_image = fit_image(self.current_image, self.image_width, self.image_height)
+
+        analyzer_state = self.analyzer_states[self.analyzer_index.get()]
+        
+        if not (analyzer_state is None):    
+            analyzer_state.decorator.decorate_before(self.analyzer, self.current_image, self.image_scale_factor)
         
         self.draw_animals()
         if self.state == self.gs_adding_animal:
             cv2.line(self.current_image, (int(self.new_animal_start.x), int(self.new_animal_start.y)), 
                      (int(self.new_animal_end.x), int(self.new_animal_end.y)), (255, 255, 255))                                                 
 
-        white = (255, 255, 255)
-        green = (0, 255, 0)            
-        red = (255, 0, 0)            
-        yellow = (255, 255, 0)
-
-        if not (self.evelien_circle_center is None):
-
-            center = self.evelien_circle_center.scaled(self.image_scale_factor)
-                         
-            cross_size = 5                                    
-                                    
-            cv2.line(self.current_image, (int(center.x - cross_size), int(center.y)),
-                     (int(center.x + cross_size), int(center.y)), white)
-            cv2.line(self.current_image, (int(center.x), int(center.y - cross_size)),
-                     (int(center.x), int(center.y + cross_size)), white)
-
-            radius = int(self.evelien_circle_radius * self.image_scale_factor)
-            cv2.circle(self.current_image, center.as_int_tuple(), radius, white)                            
-
-            cv2.line(self.current_image, (int(center.x), int(center.y - self.image_height)),
-                     (int(center.x), int(center.y - radius)), white)
-            cv2.line(self.current_image, (int(center.x), int(center.y + self.image_height)),
-                     (int(center.x), int(center.y + radius)), white)
-            cv2.line(self.current_image, (int(center.x + self.image_width), int(center.y)),
-                     (int(center.x + radius), int(center.y)), white)
-            cv2.line(self.current_image, (int(center.x - self.image_width), int(center.y)),
-                     (int(center.x - radius), int(center.y)), white)                        
-
+        if not (analyzer_state is None):    
+            analyzer_state.decorator.decorate_after(self.analyzer, self.current_image, self.image_scale_factor)
+        
     
     def poll_tracking_flow(self):
 
@@ -558,7 +524,14 @@ class Gui:
         max_elements_to_get = 10
         while not self.tracking_flow.empty() and max_elements_to_get > 0:
             e = self.tracking_flow.get()
-            ret, self.current_frame = self.video.read()
+            if self.got_first_tracking_element:
+                ret, self.current_frame = self.video.read()            
+            else:
+                self.got_first_tracking_element = True
+            if not (self.analyzer is None):                
+                self.analyzer.analyze(e)
+            if self.tracking.finished:
+                self.analyzer.on_finished()
             max_elements_to_get = max_elements_to_get - 1
 
         if e != 0:
@@ -675,7 +648,7 @@ class Gui:
             
         rows, cols = self.current_frame.shape[:2]
                 
-        self.tracking = Tracking(self.video_file_name)     
+        self.tracking = tracking.Tracking(self.video_file_name)     
 
         (self.image_scale_factor, self.image_dx, self.image_dy) = calculate_scale_factor(cols, rows, self.image_width, self.image_height)
                 
@@ -683,9 +656,7 @@ class Gui:
         self.update_image()
         
     def run(self):
-        
-        self.root.mainloop()
-        
+        self.root.mainloop()        
         self.root.destroy()
         self.video.release() 
 
@@ -717,12 +688,18 @@ class Gui:
             self.root.after(1, self.poll_tracking_flow)            
         else:            
             self.start_button["text"] = "Pause"
-            self.run_tracking_semaphore.set();
-            
+            self.run_tracking_semaphore.set();            
             bg = cv2.imread(self.get_bg_file_name())            
             self.tracking_thread = threading.Thread(target = self.tracking.do_tracking, args = 
                 (bg, self.current_frame_number, self.tracking_flow, self.time_to_stop, self.next_frame_semaphore, self.run_tracking_semaphore))
            #        self.tracking.do_tracking(self.video_file_name, self.current_frame_number, self.tracking_flow, self.time_to_stop);
+            analyzer_state = self.analyzer_states[self.analyzer_index.get()]
+
+            if not (analyzer_state is None):
+                self.analyzer = analyzer_state.factory.create_analyzer(analyzer_state.configuration, self)
+            else:
+                self.analyzer = None
+                
             self.tracking_thread.start()
             self.poll_tracking_flow()
             self.state = self.gs_running
@@ -758,13 +735,21 @@ class Gui:
             self.on_new_video()
             
     def calculate_background(self):
-        if tkMessageBox.askyesno('Calculate background', 'Calculate background for the loaded video(can take long time)?'):        
+        if tkMessageBox.askyesno('Calculate background', 'Calculate background for the loaded video(it can take long time)?'):        
             bg = self.tracking.calculate_background()                
             cv2.imwrite(self.get_bg_file_name(), bg)
 
     def configure_analyzer(self):
-        a = self.analyzers[self.analyzer_index.get()]
-        a.create_configurator(self.root, self.current_frame)        
+        state = self.analyzer_states[self.analyzer_index.get()]        
+        state.factory.create_configurator(state.configuration, self, self.root, self.current_frame)        
+    
+    def log(self, message):
+        self.messages[1].insert(Tk.END, message + '\n')
+        self.messages[1].yview(Tk.END)
+        
+    def on_configurator_closing(self):
+        self.draw_image()
+        self.update_image()                   
 
     def on_show_model(self):
         if self.state != self.gs_no_video_selected:

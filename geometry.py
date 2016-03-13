@@ -1,7 +1,7 @@
 import math
 
 class Point:
-    def __init__(self, x, y):
+    def __init__(self, x = 0, y = 0):
         self.x = x
         self.y = y
     def copy(self):
@@ -78,6 +78,9 @@ def point_along_a_line_eq(k, start_x, start_y, distance):
 
 def distance(start_x, start_y, end_x, end_y):
     return math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
+
+def pdistance(p1, p2):
+    return distance(p1.x, p1.y, p2.x, p2.y)
     
 def line_equation(start_x, start_y, end_x, end_y):
     dx = end_x - start_x
@@ -104,4 +107,7 @@ def cosine(x1, y1, x2, y2, x3, y3)                    :
         return cos
     else:
         return 0        
+
+def pcosine(p1, p2, p3):
+    return cosine(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
     

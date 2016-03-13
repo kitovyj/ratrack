@@ -16,7 +16,8 @@ tracking_resolution_height = 240
 
 curr_cos = 0
 
-max_animal_length = 55
+max_animal_length = 40
+max_animal_with_drive_length = 55
 
 # histogram usage: http://opencvpython.blogspot.nl/2013/03/histograms-4-back-projection.html
 
@@ -175,7 +176,7 @@ class Animal:
                                     
     backbone = []            
     
-    vertebra_dist = 7
+    vertebra_dist = 2
     
     contours = None
 
@@ -197,12 +198,12 @@ class Animal:
         self.back_min_value_coeff = 0.8
 
         if animal_n >= 1:
-            self.front_min_value_coeff = 0.5
+            self.front_min_value_coeff = 0.7
+            self.max_vertebra = max_animal_length / self.vertebra_dist
         else:
-            self.max_vertebra = self.max_vertebra + 2
+            self.front_min_value_coeff = 0.6
+            self.max_vertebra = max_animal_with_drive_length / self.vertebra_dist
             
-            hr = 8
-
 
         head_radius = hr / params.scale_factor # 15
         front_radius = 7 / params.scale_factor # 17.5
@@ -609,7 +610,7 @@ class Animal:
                 self.s = 0
                 return self.next()        
 
-    def align_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
+    def align_free_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
 
         max_angle = min(math.pi / len(self.backbone), math.pi / 6)
         flexibility_angle = math.pi - max_angle
@@ -706,13 +707,65 @@ class Animal:
          # end scan cycle
             
         return (best_x, best_y, best_value)            
+
+    def align_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
+
+        flexibility_angle = 2*math.pi / (len(self.backbone) - 1)
+        
+        flexibility_angle = flexibility_angle / 2
+                
+        if prev_prev != 0:            
+            cos = geometry.pcosine(prev.center, prev_prev.center, geometry.Point(prev_prev.center.x + 1, prev_prev.center.y))
+            angle = math.acos(cos)
+            if prev.center.y < prev_prev.center.y:
+                angle = 2*math.pi - angle
+        else:
+            cos = geometry.pcosine(v.center, prev.center, geometry.Point(v.center.x + 1, v.center.y))
+            angle = math.acos(cos)
+            if v.center.y < prev.center.y:
+                angle = 2*math.pi - angle
+
+        start_angle = angle - flexibility_angle / 2
+        end_angle = angle + flexibility_angle / 2
+        
+        angle = start_angle
+
+        best_value = 0
+        best_x = 0
+        best_y = 0
+            
+        while True:
+            
+            x = prev.center.x + math.cos(angle) * self.vertebra_dist
+            y = prev.center.y + math.sin(angle) * self.vertebra_dist
+
+            # bilinear interpolation
+            x0 = int(math.floor(x))
+            y0 = int(math.floor(y))
+            x1 = int(math.ceil(x))
+            y1 = int(math.ceil(y))
+            
+            value = matrix[y0, x0]*(x1 - x)*(y1 - y) + matrix[y0, x1]*(y1 - y)*(x - x0) + matrix[y1, x0]*(x1 - x)*(y - y0) + matrix[y1, x1]*(x - x0)*(y - y0)
+                    
+            if value >= best_value:
+                best_x = x
+                best_y = y
+                best_value = value                
+            
+            angle = angle + (math.pi / 180) / 1
+            if angle > end_angle:
+                break
+            
+         # end scan cycle
+            
+        return (best_x, best_y, best_value)            
         
     def align_backbone(self, matrix, weight_matrix, original_backbone, ref_value, min_vertebra, prev, min_value_coeff):
 
         central_value = 0
         central_index = 0
         
-        max_vertebra_to_add = 1
+        max_vertebra_to_add = self.max_vertebra / 10
         vertebra_added = 0
 
         backbone = []        
@@ -746,6 +799,7 @@ class Animal:
                        backbone = backbone[:idx]
                    break
                                
+               '''                                
                dist = geometry.distance(prev.center.x, prev.center.y, best_x, best_y)
                do_break = False
                for l in range(1, int(dist)):
@@ -762,8 +816,8 @@ class Animal:
                    
                if do_break:
                    break
+               '''
                
-           
                v.value = best_value
            
                if best_value > central_value:
@@ -774,8 +828,8 @@ class Animal:
                dy = best_y - v.center.y
 
                for v1 in backbone[idx:]:                                                  
-                   v1.center.x = int(round(v1.center.x + dx))
-                   v1.center.y = int(round(v1.center.y + dy))
+                   v1.center.x = v1.center.x + dx
+                   v1.center.y = v1.center.y + dy
                        
            # if it's the last vertebra, try to prolong the backbone...
            if idx == len(backbone) - 1 and vertebra_added < max_vertebra_to_add:             
@@ -788,10 +842,10 @@ class Animal:
 
         return (backbone, central_value, central_index)
 
-    def do_track(self, matrix, weight_matrix, backbone):
+    def do_track(self, matrix, weight_matrix, backbone, animals):
                                  
         cv = self.backbone[self.central_vertebra_index]
-        (best_x, best_y, reference_value) = self.align_vertebra(matrix, backbone, cv)
+        (best_x, best_y, reference_value) = self.align_free_vertebra(matrix, backbone, cv)
         dx = best_x - cv.center.x
         dy = best_y - cv.center.y
         cv.value = reference_value
@@ -799,8 +853,8 @@ class Animal:
         # shift everything
         
         for v in self.backbone:
-            v.center.x = int(round(v.center.x + dx))
-            v.center.y = int(round(v.center.y + dy))
+            v.center.x = v.center.x + dx
+            v.center.y = v.center.y + dy
                             
         cvi = self.central_vertebra_index
                 
@@ -811,7 +865,7 @@ class Animal:
                             
         (new_front, front_val, front_index) = self.align_backbone(matrix, weight_matrix, self.backbone[cvi:], reference_value, 1, prev, self.front_min_value_coeff)
 
-        prev = self.backbone[cvi + 1]
+        prev = new_front[1]
 
         (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(self.backbone[:cvi + 1]), reference_value, 0, prev, self.back_min_value_coeff)
 
@@ -832,6 +886,30 @@ class Animal:
             self.central_vertebra_index = len(backbone) - 2
 
         if len(backbone) > self.max_vertebra: 
+            
+            bd = 10000;
+            fd = 10000;
+            
+            for a in animals:
+                if a == self:
+                    continue
+                for v in a.backbone:
+                    d = geometry.pdistance(v.center, backbone[0].center)
+                    bd = min(bd, d)
+                    d = geometry.pdistance(v.center, backbone[-1].center)
+                    fd = min(fd, d)
+            
+            if bd > fd:
+                backbone = backbone[0:self.max_vertebra]
+            else:
+                backbone = backbone[len(backbone) - self.max_vertebra:]                
+                
+                    
+            '''
+
+
+            
+            
             best_i = 0
             best_sum = 0                                
             
@@ -845,6 +923,7 @@ class Animal:
                     best_i = i
             
             backbone = backbone[best_i:best_i + self.max_vertebra]
+            '''
             
             max_val = 0
             max_i = 0
@@ -857,6 +936,9 @@ class Animal:
                 max_i = max_i - 1
             
             self.central_vertebra_index = max_i
+            
+        if len(backbone) * self.vertebra_dist < 15:
+            backbone = self.backbone
             
         return backbone
               
@@ -899,7 +981,7 @@ class Animal:
         bp.center.x = best_x
         bp.center.y = best_y
             
-    def track(self, raw_matrix, weight_matrix):
+    def track(self, raw_matrix, weight_matrix, animals):
 
         debug = []
 
@@ -916,7 +998,7 @@ class Animal:
         for v in self.backbone:
             bb1.append(v.clone())
                 
-        self.backbone = self.do_track(matrix, weight_matrix, self.backbone)
+        self.backbone = self.do_track(matrix, weight_matrix, self.backbone, animals)
 
         # find countour
 
@@ -965,7 +1047,7 @@ class Animal:
         ff_flags = (4 | 2 << 8) | cv2.FLOODFILL_MASK_ONLY | cv2.FLOODFILL_FIXED_RANGE
         for v in self.backbone:
             val = blurred[int(v.center.y), int(v.center.x)]
-            cv2.floodFill(blurred, contour_mask, (v.center.x, v.center.y), 2, 0.3 * val, 0.2 * val, flags = ff_flags)
+            cv2.floodFill(blurred, contour_mask, (int(round(v.center.x)), int(round(v.center.y))), 2, 0.8 * val, 0.2 * val, flags = ff_flags)
 #            cv2.floodFill(blurred, contour_mask, (v.center.x, v.center.y), 2, 0.5 * val, 1.2 * val, flags = ff_flags)
         ret, contour_mask = cv2.threshold(contour_mask, 1, 1, cv2.THRESH_BINARY_INV)
         
@@ -1191,7 +1273,7 @@ class Animals:
  #           a_matrix = matrix
             
                                 
-            debug1 = a.track(matrix, w)
+            debug1 = a.track(matrix, w, self.animals)
             debug = debug + debug1
 
 #            a.back.mean_value = a.mean_value(matrix, a.back)                
@@ -1225,7 +1307,8 @@ class Animals:
             
 class TrackingFlowElement:
                 
-    def __init__(self, positions, filtered_image, debug):
+    def __init__(self, time, positions, filtered_image, debug):
+        self.time = time
         self.positions = positions
         self.filtered_image = filtered_image  
         self.debug_frames = debug
@@ -1243,6 +1326,8 @@ def calculate_scale_factor(frame_width, frame_height):
 class Tracking:
 
     tracking_params = TrackingParams()
+    
+    finished = False
     
     def __init__(self, video_file_name):            
         self.video = cv2.VideoCapture(video_file_name)
@@ -1439,14 +1524,18 @@ class Tracking:
            debug1 = self.animals.track(frame)
            
            debug = debug + debug1
+
+           frame_time = self.video.get(cv2.CAP_PROP_POS_MSEC) / 1000.       
            
-           tracking_flow_element = TrackingFlowElement(self.animals.get_positions(), frame1, debug)       
-           tracking_flow.put(tracking_flow_element)
- 
+           tracking_flow_element = TrackingFlowElement(frame_time, self.animals.get_positions(), frame1, debug)       
+                      
            # read the next frame
            ret, frame = self.video.read()    
-
-#           time.sleep(0.1) 
+           if ret == False:
+               self.finished = True
+                                 
+           tracking_flow.put(tracking_flow_element)
+ 
            
            if ret == False:
                break

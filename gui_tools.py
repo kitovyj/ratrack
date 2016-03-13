@@ -31,6 +31,14 @@ def create_listbox(root, px, py, pw, ph):
     lb.pack(fill = Tk.BOTH, expand = 1)
     return (f, lb)
 
+def create_textbox(root, px, py, pw, ph):
+    f = Tk.Frame(root, height = ph, width = pw)
+    f.pack_propagate(0) # don't shrink
+    f.place(x = px, y = py)
+    lb = Tk.Text(f)    
+    lb.pack(fill = Tk.BOTH, expand = 1)
+    return (f, lb)
+
 def create_radio(root, ptext, var, val, px, py, pw, ph):
     f = Tk.Frame(root, height = ph, width = pw)
     f.pack_propagate(0) # don't shrink
