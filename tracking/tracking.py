@@ -732,9 +732,7 @@ class Tracking:
         skeletonization_res_width = 320
         skeletonization_res_height = 240        
         skeletonization_border = 20
-        vertebra_length = 2
-        def __init__(self):
-            self.vertebra_length = 6
+        vertebra_length = 6
 
     scale_factor = 1        
 
