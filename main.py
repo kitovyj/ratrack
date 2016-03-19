@@ -21,6 +21,8 @@ from analyzers.evelien import *
 
 from gui_tools import *
 
+import config_serialization
+
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
         
 def calculate_scale_factor(src_width, src_height, dst_width, dst_height):
@@ -240,6 +242,9 @@ class Gui:
         
         self.root.update()
         self.arrange_controls(self.root.winfo_width(), self.root.winfo_height())
+
+        self.tracking_config = config_serialization.load_tracking_config('tracking.cfg')
+        self.animal_config = config_serialization.load_animal_config('animal.cfg')
 
         self.on_new_video()
 
@@ -590,7 +595,7 @@ class Gui:
             
         rows, cols = self.current_frame.shape[:2]
                 
-        self.tracking = tracking.Tracking(self.video_file_name, QueueLogger(self.tracker_messages_queue))
+        self.tracking = tracking.Tracking(self.video_file_name, self.tracking_config, QueueLogger(self.tracker_messages_queue))
 
         (self.image_scale_factor, self.image_dx, self.image_dy) = calculate_scale_factor(cols, rows, self.image_width, self.image_height)
                 
@@ -749,8 +754,15 @@ class Gui:
             self.state = self.gs_not_started
             self.new_animal_end.x = event.x - self.image_dx
             self.new_animal_end.y = event.y - self.image_dy
+            
+            model = self.animal_model.get()
+            if model == tracking.Animal.Configuration.model_with_drive:
+                self.animal_model.set(tracking.Animal.Configuration.model_normal)
+            self.animal_config.model = model
+            
             a = self.tracking.add_animal(self.new_animal_start.x / self.image_scale_factor, self.new_animal_start.y / self.image_scale_factor, 
-                                         self.new_animal_end.x / self.image_scale_factor, self.new_animal_end.y / self.image_scale_factor)
+                                         self.new_animal_end.x / self.image_scale_factor, self.new_animal_end.y / self.image_scale_factor, 
+                                         self.animal_config)
 #            a.best_fit(self.current_frame)
             self.current_animal_positions = self.tracking.get_animal_positions()
             self.draw_image()

@@ -19,12 +19,12 @@ class Animal:
 
         model_normal = 0
         model_with_drive = 1
-
+        
+        max_body_length = 40
+        front_min_value_coeff = 0.7
+        back_min_value_coeff = 0.8            
         def __init__(self):
             self.model = self.model_normal
-            self.max_body_length = 40
-            self.front_min_value_coeff = 0.7
-            self.back_min_value_coeff = 0.8
     
     class VertebraPosition:
         def __init__(self, x, y, value):
@@ -740,7 +740,7 @@ class Tracking:
     
     animals = []
     
-    def __init__(self, video_file_name, logger = None, config = Configuration()):
+    def __init__(self, video_file_name, config = Configuration(), logger = None):
         self.logger = logger
         self.config = config
         self.video = cv2.VideoCapture(video_file_name)
@@ -790,8 +790,8 @@ class Tracking:
         return bg
                 
 
-    def add_animal(self, start_x, start_y, end_x, end_y):
-        self.animals.append(Animal(self, len(self.animals), start_x, start_y, end_x, end_y))
+    def add_animal(self, start_x, start_y, end_x, end_y, config = Animal.Configuration()):
+        self.animals.append(Animal(self, len(self.animals), start_x, start_y, end_x, end_y, config))
         return self.animals[-1]
 
     def track_animals(self, source, matrix_fs, matrix, frame_time):
