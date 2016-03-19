@@ -1,4 +1,6 @@
 import Tkinter as Tk
+import ttk
+
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
 
@@ -31,6 +33,14 @@ def create_listbox(root, px, py, pw, ph):
     lb.pack(fill = Tk.BOTH, expand = 1)
     return (f, lb)
 
+def create_textbox(root, px, py, pw, ph):
+    f = Tk.Frame(root, height = ph, width = pw)
+    f.pack_propagate(0) # don't shrink
+    f.place(x = px, y = py)
+    lb = Tk.Text(f)    
+    lb.pack(fill = Tk.BOTH, expand = 1)
+    return (f, lb)
+
 def create_radio(root, ptext, var, val, px, py, pw, ph):
     f = Tk.Frame(root, height = ph, width = pw)
     f.pack_propagate(0) # don't shrink
@@ -57,3 +67,14 @@ def create_entry(root, val, px, py, pw, ph):
     control.pack(fill = Tk.Y, expand = 1, anchor = Tk.W)
     control.var = var
     return control
+
+def create_tabs(root, px, py, pw, ph):
+    f = Tk.Frame(root, height = ph, width = pw)
+    f.pack_propagate(0) # don't shrink
+    f.place(x = px, y = py)
+    control = ttk.Notebook(f)    
+    control.pack(fill = Tk.BOTH, expand = 1)
+    return (f, control)
+    
+    
+    

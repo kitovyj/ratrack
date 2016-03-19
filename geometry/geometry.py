@@ -1,9 +1,12 @@
 import math
 
 class Point:
-    def __init__(self, x, y):
+    def __init__(self, x = 0, y = 0):
         self.x = x
         self.y = y
+    @staticmethod
+    def from_tuple(t):
+        return Point(t[0], t[1])
     def copy(self):
         return Point(self.x, self.y)
     def clone(self):
@@ -12,8 +15,15 @@ class Point:
         return (int(self.x), int(self.y))
     def scaled(self, factor, shift = 0):
         return Point(self.x * factor + shift, self.y * factor + shift)
+    def add(self, p):
+        self.x += p.x
+        self.y += p.y
+        return self        
+    def difference(self, p):
+        return Point(self.x - p.x, self.y - p.y)
     def as_int(self):
         return Point(int(self.x), int(self.y))
+
 
 def point_along_a_line(start_x, start_y, end_x, end_y, distance):
 
@@ -36,6 +46,10 @@ def point_along_a_line(start_x, start_y, end_x, end_y, distance):
         else:
             y = start_y + distance
     return (x, y)                 
+
+def ppoint_along_a_line(p1, p2, distance):
+    (x, y) = point_along_a_line(p1.x, p1.y, p2.x, p2.y, distance)
+    return Point(x, y)
 
 def point_along_a_perpendicular(start_x, start_y, end_x, end_y, p_start_x, p_start_y, distance):
     dx = end_x - start_x
@@ -60,6 +74,9 @@ def point_along_a_perpendicular(start_x, start_y, end_x, end_y, p_start_x, p_sta
         else:
             x = p_start_x + distance
     return (x, y)                 
+    
+def point_along_a_perpendicular_p(s, e, p, distance):
+    return point_along_a_perpendicular(s.x, s.y, e.x, e.y, p.x, p.y, distance)
 
 def point_along_a_line_eq(k, start_x, start_y, distance):
     x = 0
@@ -78,6 +95,9 @@ def point_along_a_line_eq(k, start_x, start_y, distance):
 
 def distance(start_x, start_y, end_x, end_y):
     return math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
+
+def pdistance(p1, p2):
+    return distance(p1.x, p1.y, p2.x, p2.y)
     
 def line_equation(start_x, start_y, end_x, end_y):
     dx = end_x - start_x
@@ -104,4 +124,44 @@ def cosine(x1, y1, x2, y2, x3, y3)                    :
         return cos
     else:
         return 0        
+
+def pcosine(p1, p2, p3):
+    return cosine(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
     
+def sgn(x):
+    if x < 0:
+        return -1
+    else:
+        return 1
+    
+def intersection_with_circle(p1, p2, center, radius):    
+    p1s = p1.difference(center)
+    p2s = p2.difference(center)
+    # http://mathworld.wolfram.com/Circle-LineIntersection.html
+    dx = p2s.x - p1s.x
+    dy = p2s.y - p1s.y
+    dr = math.sqrt(dx**2 + dy**2)
+    D = p1s.x*p2s.y - p2s.x*p1s.y
+    r = radius
+    det = (r**2) * (dr**2) - (D**2)
+    if det <= 0:
+        return (None, None)        
+    else:
+        p1 = Point()
+        p2 = Point()                        
+        p1.x = (D * dy + sgn(dy) * dx * math.sqrt(det)) / (dr ** 2)
+        p2.x = (D * dy - sgn(dy) * dx * math.sqrt(det)) / (dr ** 2)
+        p1.y = (- D * dx + abs(dy) * math.sqrt(det)) / (dr ** 2)
+        p2.y = (- D * dx - abs(dy) * math.sqrt(det)) / (dr ** 2)
+        return (p1.add(center), p2.add(center))
+
+def rotate_p(pivot, point, angle):
+    s = math.sin(angle);
+    c = math.cos(angle);
+    p = point.difference(pivot);
+    x = p.x * c - p.y * s + pivot.x
+    y = p.x * s + p.y * c + pivot.y
+    return (x, y)
+
+
+        
