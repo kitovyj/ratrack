@@ -345,40 +345,6 @@ class Gui:
         r = bp.get_radius()
         return r * self.image_scale_factor
     
-    def draw_bodypart(self, bp, pos, color = (255, 255, 255)):
-        pos = self.project(pos)
-        cv2.circle(self.current_image, (int(pos.x), int(pos.y)), 
-                   int(self.scaled_radius(bp)), color)
-
-    def draw_head(self, head, pos, front_pos, color = (255, 255, 255)):
-        
-        if not head.triangle:
-            self.draw_bodypart(head, pos, color)
-            return
-        
-        hc = self.project(pos)
-        fc = self.project(front_pos)
-        hr = self.scaled_radius(head)
-        fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)        
-
-        side = math.sqrt(3.) * hr
-        height = 3. * hr / 2.
-
-        top = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
-        bottom = geometry.Point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd - height / 2)
-        
-  
-        left = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                    bottom[0], bottom[1], side / 2)
-        right = geometry.Point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
-                                                    bottom[0], bottom[1], -side / 2)
-        
-        cv2.line(self.current_image, (int(top[0]), int(top[1])), 
-                 (int(left[0]), int(left[1])), color)
-        cv2.line(self.current_image, (int(top[0]), int(top[1])), 
-                 (int(right[0]), int(right[1])), color)
-        cv2.line(self.current_image, (int(left[0]), int(left[1])), 
-                 (int(right[0]), int(right[1])), color)            
             
     def draw_animals(self):
         
@@ -424,6 +390,7 @@ class Gui:
                     if idx == p.central_vertebra_index:
                         r = 4
                     cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
+                    #cv2.putText(self.current_image, str(v.value), (int(vc.x), int(vc.y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, white)
                     if idx == len(p.backbone) - 1:
                         cv2.circle(self.current_image, (int(vc.x), int(vc.y)), 6, green)                
                          

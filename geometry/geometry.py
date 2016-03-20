@@ -13,14 +13,14 @@ class Point:
         return self.copy()
     def as_int_tuple(self):
         return (int(self.x), int(self.y))
-    def scaled(self, factor, shift = 0):
-        return Point(self.x * factor + shift, self.y * factor + shift)
     def add(self, p):
         self.x += p.x
         self.y += p.y
         return self        
     def difference(self, p):
         return Point(self.x - p.x, self.y - p.y)
+    def scaled(self, factor, shift = 0):
+        return Point(self.x * factor + shift, self.y * factor + shift)
     def as_int(self):
         return Point(int(self.x), int(self.y))
 
@@ -47,7 +47,7 @@ def point_along_a_line(start_x, start_y, end_x, end_y, distance):
             y = start_y + distance
     return (x, y)                 
 
-def ppoint_along_a_line(p1, p2, distance):
+def point_along_a_line_p(p1, p2, distance):
     (x, y) = point_along_a_line(p1.x, p1.y, p2.x, p2.y, distance)
     return Point(x, y)
 
@@ -96,7 +96,7 @@ def point_along_a_line_eq(k, start_x, start_y, distance):
 def distance(start_x, start_y, end_x, end_y):
     return math.sqrt((start_x - end_x)**2 + (start_y - end_y)**2)
 
-def pdistance(p1, p2):
+def distance_p(p1, p2):
     return distance(p1.x, p1.y, p2.x, p2.y)
     
 def line_equation(start_x, start_y, end_x, end_y):
@@ -155,7 +155,20 @@ def intersection_with_circle(p1, p2, center, radius):
         p2.y = (- D * dx - abs(dy) * math.sqrt(det)) / (dr ** 2)
         return (p1.add(center), p2.add(center))
 
-def rotate_p(pivot, point, angle):
+def angle(x1, y1, pivot_x, pivot_y, x2, y2):
+    x1 -= pivot_x
+    y1 -= pivot_y
+    x2 -= pivot_x
+    y2 -= pivot_y
+    dot = x1*x2 + y1*y2
+    det = x1*y2 - y1*x2
+    if det == 0 and dot == 0:
+        return 0
+    return math.atan2(det, dot)
+
+# anticlockwise (clockwise if inverted y)
+
+def rotate_p(point, pivot, angle):
     s = math.sin(angle);
     c = math.cos(angle);
     p = point.difference(pivot);

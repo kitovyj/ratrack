@@ -40,6 +40,8 @@ def load_animal_config(file_name):
         config.back_min_value_coeff = data["back_min_value_coeff"]
         config.front_min_value_coeff = data["front_min_value_coeff"]
         config.max_body_length = data["max_body_length"]
+        config.max_body_width = data["max_body_width"]
+        config.min_body_width = data["min_body_width"]
         config.model = str_to_animal_model[data["model"]]
         
     return config
@@ -50,6 +52,8 @@ def save_animal_config(config, file_name):
     json.dump({ 'back_min_value_coeff': config.back_min_value_coeff,
                 'front_min_value_coeff': config.front_min_value_coeff,
                 'max_body_length': config.max_body_length,
-                'model': animal_model_to_str[config.model]}, file, indent = 4)
+                'model': animal_model_to_str[config.model],
+                'max_body_width': config.max_body_width,
+                'min_body_width': config.min_body_width }, file, indent = 4)
                 
                 
