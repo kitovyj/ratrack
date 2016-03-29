@@ -91,7 +91,7 @@ class EvelienAnalyzer:
             
         else:
             
-            d = geometry.pdistance(self.current_position, v.center)
+            d = geometry.distance_p(self.current_position, v.center)
             if d > 10:
                 self.current_position = v.center
                 self.trajectory.append((tracking_data.time - self.start_time, self.current_position))
@@ -131,12 +131,12 @@ class EvelienAnalyzer:
                     else:
                         closest = curr           
                         
-                    if geometry.pdistance(closest, p1) > geometry.pdistance(closest, p2):
+                    if geometry.distance_p(closest, p1) > geometry.distance_p(closest, p2):
                         ip = p2
                     else:
                         ip = p1                        
                         
-                    dist_in_new_comp = dist_travelled - geometry.pdistance(curr, ip)
+                    dist_in_new_comp = dist_travelled - geometry.distance_p(curr, ip)
                     
                 dist_in_prev_comp = dist_travelled - dist_in_new_comp
                                 
@@ -264,7 +264,7 @@ class EvelienAnalyzer:
         
         
     def compartement(self, p):
-        d = geometry.pdistance(p, self.config.circle_center)
+        d = geometry.distance_p(p, self.config.circle_center)
         if d < self.config.circle_radius:
             return self.comp_z
         else:
