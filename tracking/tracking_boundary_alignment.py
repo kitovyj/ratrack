@@ -166,15 +166,16 @@ class BoundaryAligner:
         e = geometry.Point(v.center.x + dx, v.center.y + dy)        
     
         dist = geometry.distance_p(prev.center, next.center)
-    
-        range = dist / 2
+            
+        range = dist
                 
-        start_r = -range / 2
-        end_r = range / 2
+        start_r = -range / 2.
+        end_r = range / 2.
         
         best_x = 0
         best_y = 0
         best_value = 0
+        best_inertia = 1
     
         r = start_r
          
@@ -195,17 +196,20 @@ class BoundaryAligner:
             
             value = float(matrix[y0, x0])*(x1 - x)*(y1 - y) + float(matrix[y0, x1])*(y1 - y)*(x - x0) + float(matrix[y1, x0])*(x1 - x)*(y - y0) + float(matrix[y1, x1])*(x - x0)*(y - y0)            
                     
-            if value >= best_value:
+            inertia = 1 - abs(r) / (10*range)
+            
+            if value*inertia >= best_value:
                 best_x = x
                 best_y = y
-                best_value = value
+                best_inertia = inertia
+                best_value = value*inertia
             
             if r > end_r:
                 break
             
          # end scan cycle
             
-        return (best_x, best_y, best_value)  
+        return (best_x, best_y, best_value / best_inertia)  
                 
     
     
@@ -219,7 +223,7 @@ class BoundaryAligner:
         dist = geometry.distance_p(s.center, e.center)    
         if l < 3:
             if dist <= self.host.config.vertebra_length:
-                return
+                return -1
             else:
                 new_v = geometry.point_along_a_line_p(s.center, e.center, dist/2)
                 index = start_index + 1
@@ -229,19 +233,27 @@ class BoundaryAligner:
             
             if dist <= self.host.config.vertebra_length:
                 del backbone[start_index + 1:end_index]
-                return            
+                return -1         
             
             index = start_index + l / 2
             v = backbone[index]
             
-        (best_x, best_y, best_val) = self.align_middle_vertebra(matrix, s, v, e)
+        (best_x, best_y, best_val) = self.align_middle_vertebra(matrix, s, v, e)                
         
+        if best_val < ref_value*min_value_coeff:
+            return index
+                    
         v.center.x = best_x
         v.center.y = best_y
-        v.value = best_val
+        v.value = best_val                
         
-        self.align_backbone(matrix, weight_matrix, backbone, index, end_index, ref_value, min_vertebra, None, min_value_coeff, frame_time)
-        self.align_backbone(matrix, weight_matrix, backbone, start_index, index, ref_value, min_vertebra, None, min_value_coeff, frame_time)
+        r = self.align_backbone(matrix, weight_matrix, backbone, index, end_index, ref_value, min_vertebra, None, min_value_coeff, frame_time)
+        if r != -1:
+            return r
+        r = self.align_backbone(matrix, weight_matrix, backbone, start_index, index, ref_value, min_vertebra, None, min_value_coeff, frame_time)
+        if r != -1:
+            return r
+        return -1
             
     def align(self, matrix, weight_matrix, backbone, animals, frame_time):               
                                   
@@ -268,21 +280,30 @@ class BoundaryAligner:
             v.center.x = v.center.x + dx
             v.center.y = v.center.y + dy        
     
+        while True:
     
-        while True:            
-            (best_x, best_y, best_val) = self.align_last_vertebra(matrix, backbone[-1], backbone[max_i])        
-            left = len(backbone) - max_i - 1
-            if best_val < self.config.front_min_value_coeff * reference_value and left > 1:        
-                del backbone[-1]
-            else:            
-                backbone[-1].center.x = best_x
-                backbone[-1].center.y = best_y
-                backbone[-1].value = best_val
-                break
-                            
-        e = len(backbone) - 1
-                        
-        self.align_backbone(matrix, weight_matrix, backbone, max_i, e, reference_value, 1, None, self.config.front_min_value_coeff, frame_time)
+            while True:            
+                (best_x, best_y, best_val) = self.align_last_vertebra(matrix, backbone[-1], backbone[max_i])        
+                left = len(backbone) - max_i - 1
+                if best_val < self.config.front_min_value_coeff * reference_value and left > 1:        
+                    del backbone[-1]
+                else:            
+                    backbone[-1].center.x = best_x
+                    backbone[-1].center.y = best_y
+                    backbone[-1].value = best_val
+                    break
+                          
+            e = len(backbone) - 1                                  
+            
+            r = self.align_backbone(matrix, weight_matrix, backbone, max_i, e, reference_value, 1, None, self.config.front_min_value_coeff, frame_time)
+        
+            if r != -1:
+                self.host.logger.log("gap detected")
+                backbone = backbone[0:r + 1]
+            else:
+                break            
+            
+        
         if max_i != 0:
             
             while True:                        
@@ -298,6 +319,8 @@ class BoundaryAligner:
             
             self.align_backbone(matrix, weight_matrix, backbone, 0, max_i, reference_value, 0, None, self.config.back_min_value_coeff, frame_time)            
      
+     
+        # try to extend the front        
         s = backbone[-2]
         e = backbone[-1]
         pvd = geometry.distance(s.center.x, s.center.y, e.center.x, e.center.y)
@@ -311,7 +334,7 @@ class BoundaryAligner:
             backbone[-1].center.y = best_y
             backbone[-1].value = best_val
             
-        
+        # try to extend the back
         s = backbone[1]
         e = backbone[0]
         pvd = geometry.distance(s.center.x, s.center.y, e.center.x, e.center.y)

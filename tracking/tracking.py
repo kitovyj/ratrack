@@ -6,12 +6,14 @@ import threading
 import Queue
 import pdb
 import time
+from skimage import morphology
 
 from geometry import *
 from vertebra import *
 
 import tracking_boundary_alignment
 import tracking_central_alignment
+import bwmorph_thin
 
 class AnimalPosition:
     def __init__(self):
@@ -219,8 +221,8 @@ class Animal:
         for v in self.backbone:
             bb1.append(v.clone())
                 
-#        self.backbone = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
-        self.backbone = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        self.backbone = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+#        self.backbone = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
                 
         return debug
                                 
@@ -390,9 +392,25 @@ class Tracking:
         frame_gr = cv2.absdiff(frame, bg)
         frame_gr = cv2.cvtColor(frame_gr, cv2.COLOR_BGR2GRAY)           
         cv2.normalize(frame_gr, frame_gr, 0, 255, cv2.NORM_MINMAX)           
+
+        #kernel = np.ones((10, 10), np.uint8)
+        #frame_gr = cv2.erode(frame_gr, kernel, iterations = 3)
+
+        #frame_gr = morphology.skeletonize(frame_gr > 50)
+        #frame_gr, distance = morphology.medial_axis(frame_gr > 50, return_distance = True)
+        #frame_gr = bwmorph_thin.bwmorph_thin(frame_gr > 50, 30)
+        #frame_gr = frame_gr.astype(np.uint8);
+
+        #cv2.normalize(frame_gr, frame_gr, 0, 255, cv2.NORM_MINMAX)           
+
         frame_gr_resized = self.resize(frame_gr)           
+
+        ret, frame_gr_resized = cv2.threshold(frame_gr_resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        frame_gr_resized = morphology.remove_small_objects(frame_gr_resized, in_place = True)
+        
         border = self.config.skeletonization_border   
         frame_gr_resized = cv2.copyMakeBorder(frame_gr_resized, border, border, border, border, cv2.BORDER_CONSTANT, 0)
+
                                              
         debug.append(("source", frame_gr))    
 
@@ -413,7 +431,7 @@ class Tracking:
         
     def do_tracking(self, bg, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
 
-#        pdb.set_trace()
+        pdb.set_trace()
 
         if not self.animals:
             return

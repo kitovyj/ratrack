@@ -185,7 +185,7 @@ class CentralAligner:
             #rotation_inertia = 1.0
             
             #k =  1 - 0.0001 * rot * (float(self.max_vertebra) / len(self.backbone)**3)
-            k =  1 - 0.01 * rot
+            k =  1 - 0.08 * rot
             #k = 1
             #k = 1
     #            k = 1

@@ -16,7 +16,7 @@ def load_tracking_config(file_name):
         data_file = open(file_name)
         data = json.load(data_file)    
         config.skeletonization_res_width = data["skeletonization_res_width"]
-        config.skeletonization_res_width = data["skeletonization_res_height"]
+        config.skeletonization_res_height = data["skeletonization_res_height"]
         config.vertebra_length = data["vertebra_length"]
         
     return config

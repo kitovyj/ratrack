@@ -89,7 +89,8 @@ class Gui:
     
     #video_file_name = 'videotest.avi'
     #c:\radboud\ratrack\videos\2014-03-22_20-57-44.avi
-    video_file_name = 'c:/radboud/ratrack/videos/2014-03-22_20-57-44.avi'
+    #video_file_name = 'c:/radboud/ratrack/videos/2014-03-22_20-57-44.avi'
+    video_file_name = 'c:/radboud/ratrack/videos/evelien/Peppie_LM5min_19052016_.avi'
             
     video = 0    
     
@@ -163,14 +164,19 @@ class Gui:
         
         self.menu.add_cascade(label = "Misc", menu = misc)                
 
+        background = Tk.Menu(self.menu, tearoff = 0)
+        background.add_command(label = 'Capture the background', command = self.on_capture_background)
+        background.add_command(label = 'Calculate the background', command = self.on_calculate_background)
+
+        self.menu.add_cascade(label = "Background", menu = background)   
+
+        self.menu.add_command(label = "Quit", command = self.on_quit)   
+
         self.root.config(menu = self.menu)
         
         control_y = buttons_top_margin        
         self.select_file_button = gui_tools.create_button(self.root, "Select file", self.select_file, 
                                                           buttons_left_margin, control_y, buttons_width, buttons_height)                                                
-        control_y = control_y + buttons_height + buttons_space                                                
-        self.calc_bg_button = gui_tools.create_button(self.root, "Calculate background", self.calculate_background, 
-                                                      buttons_left_margin, control_y, buttons_width, buttons_height)                                                
         control_y = control_y + buttons_height + buttons_space                                                
         self.start_button = gui_tools.create_button(self.root, "Run", self.start, 
                                                     buttons_left_margin, control_y, buttons_width, buttons_height)                                          
@@ -181,9 +187,6 @@ class Gui:
         self.next_button = gui_tools.create_button(self.root, "Configure tracker", self.configure_tracker, 
                                                    buttons_left_margin, control_y, buttons_width, buttons_height)                                        
         control_y = control_y + buttons_height + buttons_space                                         
-        self.quit_button = gui_tools.create_button(self.root, "Quit", self.quit, 
-                                                   buttons_left_margin, control_y, buttons_width, buttons_height)                                            
-        control_y = control_y + buttons_height + buttons_space                                                                                  
         self.check_show_model = gui_tools.create_check(self.root, "Show model", 1, self.on_show_model,
                                                        buttons_left_margin, control_y, buttons_width, buttons_height)
         control_y = control_y + check_height + buttons_space                                                                                  
@@ -389,7 +392,7 @@ class Gui:
                     r = 2
                     if idx == p.central_vertebra_index:
                         r = 4
-                    cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
+                        cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
                     #cv2.putText(self.current_image, str(v.value), (int(vc.x), int(vc.y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, white)
                     if idx == len(p.backbone) - 1:
                         cv2.circle(self.current_image, (int(vc.x), int(vc.y)), 6, green)                
@@ -601,9 +604,16 @@ class Gui:
             self.state = self.gs_running
             self.root.after(1, self.poll_tracking_flow)            
         else:            
+
+            bg = cv2.imread(self.get_bg_file_name())
+            
+            if bg is None:
+                tkMessageBox.showwarning('Start tracking', 'Can''t find the backgound image file')
+                return;
+
             self.start_button["text"] = "Pause"
             self.run_tracking_semaphore.set();            
-            bg = cv2.imread(self.get_bg_file_name())            
+            
             self.tracking_thread = threading.Thread(target = self.tracking.do_tracking, args = 
                 (bg, self.current_frame_number, self.tracking_flow, self.time_to_stop, self.next_frame_semaphore, self.run_tracking_semaphore))
            #        self.tracking.do_tracking(self.video_file_name, self.current_frame_number, self.tracking_flow, self.time_to_stop);
@@ -646,15 +656,24 @@ class Gui:
             self.writer.release()
         self.root.quit()
 
+    def on_quit(self):
+        if tkMessageBox.askyesno('Quit', 'Quit the tool?'):
+            self.quit()
+
     def select_file(self):
         fn = tkFileDialog.askopenfilename()
         if fn: 
             self.video_file_name = fn
             self.on_new_video()
             
-    def calculate_background(self):
+    def on_calculate_background(self):
         if tkMessageBox.askyesno('Calculate background', 'Calculate background for the loaded video(it can take a long time)?'):        
             bg = self.tracking.calculate_background()                
+            cv2.imwrite(self.get_bg_file_name(), bg)
+
+    def on_capture_background(self):
+        if tkMessageBox.askyesno('Capture background', 'Capture the backgound from the current frame? It will replace the background file.'):        
+            bg = self.current_frame
             cv2.imwrite(self.get_bg_file_name(), bg)
 
     def configure_tracker(self):
