@@ -249,8 +249,9 @@ class Gui:
 
         self.tracking_config = config_serialization.load_tracking_config('tracking.cfg')
         self.animal_config = config_serialization.load_animal_config('animal.cfg')
-
-        #self.on_new_video()
+        
+        if os.path.isfile(self.video_file_name):
+            self.on_new_video()
 
     def arrange_controls(self, width, height):
         
@@ -395,6 +396,8 @@ class Gui:
                         r = 4
                     cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
                     #cv2.putText(self.current_image, str(v.value), (int(vc.x), int(vc.y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, white)
+                    TextBoxLogger(self.analyzer_messages).log(str(v.value))
+                    
                     if idx == len(p.backbone) - 1:
                         cv2.circle(self.current_image, (int(vc.x), int(vc.y)), 6, green)                
                          

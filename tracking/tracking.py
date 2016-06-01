@@ -25,11 +25,11 @@ class Animal:
     class Configuration:
         model_normal = 0
         model_with_drive = 1        
-        max_body_length = 80
+        max_body_length = 60
         max_body_width = 30
         min_body_width = 30        
-        front_min_value_coeff = 0.7
-        back_min_value_coeff = 0.8            
+        front_min_value_coeff = 100
+        back_min_value_coeff = 100            
         def __init__(self):
             self.model = self.model_normal
     
@@ -244,6 +244,7 @@ class Tracking:
         skeletonization_res_height = 240        
         skeletonization_border = 20
         vertebra_length = 10
+        scale = 1 
 
     scale_factor = 1        
 
@@ -258,6 +259,8 @@ class Tracking:
         frame_width = self.video.get(cv2.CAP_PROP_FRAME_WIDTH)
         frame_height = self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.scale_factor = self.calculate_scale_factor(frame_width, frame_height)
+        config.pixels_to_meters = float(config.scale) / frame_width
+        config.max_animal_velocity = 1 # m/s
         config.vertebra_length = config.vertebra_length * self.scale_factor
 
     def calculate_scale_factor(self, frame_width, frame_height):
@@ -444,7 +447,7 @@ class Tracking:
         
     def do_tracking(self, bg, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
 
-        #pdb.set_trace()
+        pdb.set_trace()
 
         if not self.animals:
             return

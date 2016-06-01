@@ -18,9 +18,12 @@ class CentralAligner:
         self.host = animal.host
         self.config = animal.config
         
-    def align_free_vertebra(self, matrix, backbone, v, prev = 0, prev_prev = 0):
+    def align_free_vertebra(self, matrix, backbone, v, time_passed, prev = 0, prev_prev = 0):
         
-        scan_range_max = 5
+        scan_range_max = 10
+        
+        pixels_to_meters = self.host.config.pixels_to_meters / self.host.scale_factor
+        scan_range_max = (self.host.config.max_animal_velocity * time_passed) / pixels_to_meters
         
         start_x = v.center.x
         start_y = v.center.y
@@ -63,13 +66,8 @@ class CentralAligner:
         return (best_x, best_y, best_value)            
         
 
-    def align_vertebra(self, matrix, backbone, v, idx, prev, prev_prev, frame_time):
-    
-        if self.last_frame_time is None:
-            time_passed = 1
-        else:
-            time_passed = frame_time - self.last_frame_time
-            
+    def align_vertebra(self, matrix, backbone, v, idx, prev, prev_prev, time_passed):
+                
         basic_max_rotation_velocity = math.pi # rad per second                
         #rvk = (idx * 10.0 + self.max_vertebra) / self.max_vertebra
         rvk = 1
@@ -86,8 +84,11 @@ class CentralAligner:
         
         flexibility_angle = 2*math.pi / (len(self.animal.backbone) - 1)
         
-        flexibility_angle = flexibility_angle * 1
-                
+        flexibility_angle = flexibility_angle * 0.5
+        
+        if len(self.animal.backbone) == 2:
+            flexibility_angle = 2*math.pi
+        
         if prev_prev != 0:            
             cos = geometry.pcosine(prev.center, prev_prev.center, geometry.Point(prev_prev.center.x + 1, prev_prev.center.y))
             angle = math.acos(cos)
@@ -239,7 +240,7 @@ class CentralAligner:
             
         return (best_x, best_y, best_value / best_k)  
         
-    def align_backbone(self, matrix, weight_matrix, original_backbone, ref_value, min_vertebra, prev, min_value_coeff, frame_time):
+    def align_backbone(self, matrix, weight_matrix, original_backbone, ref_value, min_vertebra, prev, min_value_coeff, time_passed):
     
         central_value = 0
         central_index = 0
@@ -250,6 +251,9 @@ class CentralAligner:
         backbone = []        
         for v in original_backbone:
             backbone.append(v.clone())
+        
+        self.host.logger.log('ref value: ' + str(ref_value))        
+        self.host.logger.log('min value coeff: ' + str(min_value_coeff))        
         
         idx = 0
         while idx < len(backbone):
@@ -271,15 +275,20 @@ class CentralAligner:
                
            if idx > 0:
                
-               (best_x, best_y, best_value) = self.align_vertebra(matrix, backbone, v, idx, prev, prev_prev, frame_time)
+               (best_x, best_y, best_value) = self.align_vertebra(matrix, backbone, v, idx, prev, prev_prev, time_passed)
                
-               #self.host.logger.log(str(best_value))
+               self.host.logger.log('best val ' + str(best_value))
     
                if best_value < min_value_coeff * ref_value:
+
+                   self.host.logger.log('here')
+
                    #self.host.logger.log(str(best_value))
                    #self.host.logger.log(str(idx) + " " + str(len(backbone)))
     
-                   if idx > min_vertebra and idx == len(backbone) - 1:
+                   #if idx > min_vertebra and idx == len(backbone) - 1:
+                   if idx > min_vertebra:
+                       self.host.logger.log('here1')
                        backbone = backbone[:idx]
                        break
                                
@@ -333,7 +342,12 @@ class CentralAligner:
     
     
     def align(self, matrix, weight_matrix, backbone, animals, frame_time):               
-                                  
+                                 
+        if self.last_frame_time is None:
+            time_passed = 0.0
+        else:
+            time_passed = frame_time - self.last_frame_time
+
         max_i = 0
         max_val = -1
         for i in xrange(0, len(backbone) / 3):
@@ -351,7 +365,7 @@ class CentralAligner:
     
                          
         cv = backbone[self.central_vertebra_index]
-        (best_x, best_y, reference_value) = self.align_free_vertebra(matrix, backbone, cv)
+        (best_x, best_y, reference_value) = self.align_free_vertebra(matrix, backbone, cv, time_passed)
         dx = best_x - cv.center.x
         dy = best_y - cv.center.y
         cv.value = reference_value
@@ -369,11 +383,11 @@ class CentralAligner:
         else:
             prev = 0
                             
-        (new_front, front_val, front_index) = self.align_backbone(matrix, weight_matrix, backbone[cvi:], reference_value, 1, prev, self.config.front_min_value_coeff, frame_time)
+        (new_front, front_val, front_index) = self.align_backbone(matrix, weight_matrix, backbone[cvi:], reference_value, 1, prev, self.config.front_min_value_coeff, time_passed)
     
         prev = new_front[1]
     
-        (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(backbone[:cvi + 1]), reference_value, 0, prev, self.config.back_min_value_coeff, frame_time)
+        (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(backbone[:cvi + 1]), reference_value, 0, prev, self.config.back_min_value_coeff, time_passed)
     
         self.central_vertebra_index = len(new_back) - 1
     
@@ -392,6 +406,9 @@ class CentralAligner:
             self.central_vertebra_index = len(backbone) - 2
     
         if len(backbone) > self.animal.max_vertebra: 
+
+            self.host.logger.log('too long')            
+            
             
             bd = 10000;
             fd = 10000;

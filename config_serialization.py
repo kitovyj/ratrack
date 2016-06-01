@@ -18,6 +18,7 @@ def load_tracking_config(file_name):
         config.skeletonization_res_width = data["skeletonization_res_width"]
         config.skeletonization_res_height = data["skeletonization_res_height"]
         config.vertebra_length = data["vertebra_length"]
+        config.scale = data["scale"]
         
     return config
 
@@ -26,7 +27,8 @@ def save_tracking_config(config, file_name):
     file = open(file_name, 'w') 
     json.dump({ 'skeletonization_res_width': config.skeletonization_res_width,
                 'skeletonization_res_height': config.skeletonization_res_height,
-                'vertebra_length': config.vertebra_length }, file, indent = 4)
+                'vertebra_length': config.vertebra_length,
+                'scale': config.scale }, file, indent = 4)
 
 def load_animal_config(file_name):    
     config = tracking.Animal.Configuration()
