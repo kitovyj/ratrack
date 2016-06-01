@@ -440,8 +440,8 @@ class Gui:
                 self.got_first_tracking_element = True
             if not (self.analyzer is None):                
                 self.analyzer.analyze(e)
-            if self.tracking.finished:
-                self.analyzer.on_finished()
+                if self.tracking.finished:
+                    self.analyzer.on_finished()
             max_elements_to_get = max_elements_to_get - 1
 
         if e != 0:
