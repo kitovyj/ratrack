@@ -250,7 +250,7 @@ class Gui:
         self.tracking_config = config_serialization.load_tracking_config('tracking.cfg')
         self.animal_config = config_serialization.load_animal_config('animal.cfg')
 
-        self.on_new_video()
+        #self.on_new_video()
 
     def arrange_controls(self, width, height):
         
