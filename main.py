@@ -22,6 +22,7 @@ from analyzers.evelien import *
 from gui_tools import *
 
 import config_serialization
+from tracker_configurator import *
 
 # tkinter layout management : http://zetcode.com/gui/tkinter/layout/                        
         
@@ -392,7 +393,7 @@ class Gui:
                     r = 2
                     if idx == p.central_vertebra_index:
                         r = 4
-                        cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
+                    cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
                     #cv2.putText(self.current_image, str(v.value), (int(vc.x), int(vc.y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, white)
                     if idx == len(p.backbone) - 1:
                         cv2.circle(self.current_image, (int(vc.x), int(vc.y)), 6, green)                
@@ -677,8 +678,7 @@ class Gui:
             cv2.imwrite(self.get_bg_file_name(), bg)
 
     def configure_tracker(self):
-        state = self.analyzer_states[self.analyzer_index.get()]        
-        state.factory.create_configurator(state.configuration, self, self.root, self.current_frame)        
+        tc = TrackerConfigurator(self.tracking_config, self.animal_config, self, self.root, self.current_frame)
 
     def configure_analyzer(self):
         state = self.analyzer_states[self.analyzer_index.get()]        

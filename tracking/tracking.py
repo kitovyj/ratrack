@@ -6,6 +6,7 @@ import threading
 import Queue
 import pdb
 import time
+import csv
 from skimage import morphology
 
 from geometry import *
@@ -221,8 +222,8 @@ class Animal:
         for v in self.backbone:
             bb1.append(v.clone())
                 
-        self.backbone = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
-#        self.backbone = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+#        self.backbone = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        self.backbone = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
                 
         return debug
                                 
@@ -406,7 +407,10 @@ class Tracking:
         frame_gr_resized = self.resize(frame_gr)           
 
         ret, frame_gr_resized = cv2.threshold(frame_gr_resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        frame_gr_resized = morphology.remove_small_objects(frame_gr_resized, in_place = True)
+        frame_gr_resized = morphology.remove_small_objects(frame_gr_resized > 0, 100, 2, in_place = True)        
+        frame_gr_resized = frame_gr_resized.astype(np.uint8);
+        cv2.normalize(frame_gr_resized, frame_gr_resized, 0, 255, cv2.NORM_MINMAX)           
+        
         
         border = self.config.skeletonization_border   
         frame_gr_resized = cv2.copyMakeBorder(frame_gr_resized, border, border, border, border, cv2.BORDER_CONSTANT, 0)
@@ -417,8 +421,17 @@ class Tracking:
         debug1 = self.track_animals(frame, frame_gr, frame_gr_resized, frame_time)                   
         
         debug = debug + debug1
+        
+        positions = self.get_animal_positions()
+        pos = positions[0][1]
+        p = pos.backbone[pos.central_vertebra_index]        
+        
+        self.csv_path_writer.writerows([[p.center.x, p.center.y]])
+        
+        
+        
                    
-        tracking_flow_element = TrackingFlowElement(frame_time, self.get_animal_positions(), frame_gr, debug)       
+        tracking_flow_element = TrackingFlowElement(frame_time, positions, frame_gr, debug)       
                       
         return tracking_flow_element                        
 
@@ -431,10 +444,13 @@ class Tracking:
         
     def do_tracking(self, bg, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
 
-        pdb.set_trace()
+        #pdb.set_trace()
 
         if not self.animals:
             return
+            
+        self.csv_path_file = open('path.csv', 'w')
+        self.csv_path_writer = csv.writer(self.csv_path_file, delimiter=',')        
         
         self.video.set(cv2.CAP_PROP_POS_FRAMES, start_frame)        
             
@@ -467,6 +483,8 @@ class Tracking:
             
            if ret == False:
                break
+         
+        self.csv_path_file.close()
        
         if not self.logger is None:
             self.logger.log("tracking finished")

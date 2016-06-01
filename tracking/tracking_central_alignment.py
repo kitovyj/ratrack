@@ -86,7 +86,7 @@ class CentralAligner:
         
         flexibility_angle = 2*math.pi / (len(self.animal.backbone) - 1)
         
-        flexibility_angle = flexibility_angle * 0.5
+        flexibility_angle = flexibility_angle * 1
                 
         if prev_prev != 0:            
             cos = geometry.pcosine(prev.center, prev_prev.center, geometry.Point(prev_prev.center.x + 1, prev_prev.center.y))
@@ -185,8 +185,8 @@ class CentralAligner:
             #rotation_inertia = 1.0
             
             #k =  1 - 0.0001 * rot * (float(self.max_vertebra) / len(self.backbone)**3)
-            k =  1 - 0.08 * rot
-            #k = 1
+            #k =  1 - 0.08 * rot
+            k = 1
             #k = 1
     #            k = 1
     
