@@ -157,13 +157,17 @@ class Gui:
         # create main menu
         
         self.menu = Tk.Menu(self.root)
+
+        submenu = Tk.Menu(self.menu, tearoff = 0)
+        submenu.add_command(label = 'Delete all animals', command = self.on_delete_all_animals)
+        self.menu.add_cascade(label = "Objects", menu = submenu)        
         
         misc = Tk.Menu(self.menu, tearoff = 0)
         misc.add_command(label = 'Source frame screenshot', command = self.on_source_screenshot)
         misc.add_command(label = 'Drawn frame screenshot', command = self.on_drawn_frame_screenshot)
         misc.add_command(label = 'Debug frame screenshot', command = self.on_debug_frame_screenshot)
         
-        self.menu.add_cascade(label = "Misc", menu = misc)                
+        self.menu.add_cascade(label = "Misc", menu = misc) 
 
         background = Tk.Menu(self.menu, tearoff = 0)
         background.add_command(label = 'Capture the background', command = self.on_capture_background)
@@ -717,6 +721,13 @@ class Gui:
             self.update_image()            
     
     # menu events
+
+    def on_delete_all_animals(self):
+        if self.state != self.gs_no_video_selected:
+            self.tracking.delete_all_animals()
+            self.current_animal_positions = []
+            self.draw_image()
+            self.update_image()            
     
     def on_source_screenshot(self):
         cv2.imwrite('source_frame.png', self.current_frame)

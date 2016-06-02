@@ -254,6 +254,7 @@ class CentralAligner:
         
         self.host.logger.log('ref value: ' + str(ref_value))        
         self.host.logger.log('min value coeff: ' + str(min_value_coeff))        
+        self.host.logger.log('bb len: ' + str(len(backbone)))        
         
         idx = 0
         while idx < len(backbone):
@@ -348,9 +349,12 @@ class CentralAligner:
         else:
             time_passed = frame_time - self.last_frame_time
 
+
+        
         max_i = 0
         max_val = -1
         for i in xrange(0, len(backbone) / 3):
+ #       for i in xrange(0, len(backbone)):
             if backbone[i].value > max_val:
                 max_val = backbone[i].value
                 max_i = i
@@ -361,10 +365,10 @@ class CentralAligner:
             max_i = 1
         '''
                 
-        self.central_vertebra_index = max_i
+        central_vertebra_index = max_i
     
                          
-        cv = backbone[self.central_vertebra_index]
+        cv = backbone[central_vertebra_index]
         (best_x, best_y, reference_value) = self.align_free_vertebra(matrix, backbone, cv, time_passed)
         dx = best_x - cv.center.x
         dy = best_y - cv.center.y
@@ -376,7 +380,7 @@ class CentralAligner:
             v.center.x = v.center.x + dx
             v.center.y = v.center.y + dy
                             
-        cvi = self.central_vertebra_index
+        cvi = central_vertebra_index
                 
         if cvi > 0:
             prev = backbone[cvi - 1]
@@ -387,9 +391,10 @@ class CentralAligner:
     
         prev = new_front[1]
     
+        #(new_back, back_val, back_index) = ([], 0, 0)
         (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(backbone[:cvi + 1]), reference_value, 0, prev, self.config.back_min_value_coeff, time_passed)
     
-        self.central_vertebra_index = len(new_back) - 1
+        central_vertebra_index = len(new_back) - 1
     
         if back_val > reference_value:
             reference_value = back_val
@@ -402,8 +407,20 @@ class CentralAligner:
                 
         backbone = list(reversed(new_back)) + new_front[1:]
     
-        if self.central_vertebra_index == len(backbone) - 1:
-            self.central_vertebra_index = len(backbone) - 2
+        if central_vertebra_index == len(backbone) - 1:
+            central_vertebra_index = len(backbone) - 2
+
+        max_val = 0
+        max_i = 0
+        for idx, v in enumerate(backbone):
+            if v.value > max_val:
+                max_val = v.value
+                max_i = idx
+                    
+        #if max_i == len(backbone) - 1:
+        #    max_i = max_i - 1
+            
+        central_vertebra_index = max_i
     
         if len(backbone) > self.animal.max_vertebra: 
 
@@ -453,7 +470,7 @@ class CentralAligner:
             if max_i == len(backbone) - 1:
                 max_i = max_i - 1
             
-            self.central_vertebra_index = max_i
+            central_vertebra_index = max_i
         
         '''
         if float(len(backbone)) / self.max_vertebra < 0.4:
@@ -465,7 +482,7 @@ class CentralAligner:
         '''
         self.last_frame_time = frame_time
             
-        return backbone
+        return (backbone, central_vertebra_index)
               
                         
     

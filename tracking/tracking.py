@@ -8,6 +8,7 @@ import pdb
 import time
 import csv
 from skimage import morphology
+from skimage import filters
 
 from geometry import *
 from vertebra import *
@@ -84,9 +85,9 @@ class Animal:
             self.backbone.append(Vertebra(mount_position[0], mount_position[1], 0))            
             dist = dist + self.host.config.vertebra_length            
             
-        self.central_vertebra_index = 1
+        self.central_vertebra_index = 0
             
-        mass_center_filter_size = int(round(self.scaled_max_width * 2))
+        mass_center_filter_size = int(round(self.scaled_max_width))
         mass_center_filter_center = mass_center_filter_size / 2
         self.mass_center_filter = np.ones((mass_center_filter_size, mass_center_filter_size), np.float)
                 
@@ -94,7 +95,7 @@ class Animal:
             for j in xrange(0, mass_center_filter_size):
                 if i != mass_center_filter_center or j != i:
                     dist = geometry.distance(i, j, mass_center_filter_center, mass_center_filter_center)
-                    if dist < self.scaled_max_width:
+                    if dist < self.scaled_max_width / 2:
                         self.mass_center_filter[i, j] = 1. / (dist)
                     else:
                         self.mass_center_filter[i, j] = 0
@@ -168,7 +169,7 @@ class Animal:
 
 
     def set_sure_area(self, matrix, value):
-        self.set_sure_area_1(self.backbone, matrix, value, self.scaled_max_width, self.scaled_min_width)
+        self.set_sure_area_1(self.backbone, matrix, value, self.scaled_max_width / 2, self.scaled_min_width / 2)
 
     def set_max_area(self, backbone, matrix, value, min_radius, max_radius):
         max_val = -1
@@ -222,9 +223,10 @@ class Animal:
         for v in self.backbone:
             bb1.append(v.clone())
                 
-#        self.backbone = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
-        self.backbone = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
-                
+        #(self.backbone, cni) = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        (self.backbone, cni) = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        self.central_vertebra_index = cni                
+            
         return debug
                                 
             
@@ -308,6 +310,9 @@ class Tracking:
     def add_animal(self, start_x, start_y, end_x, end_y, config = Animal.Configuration()):
         self.animals.append(Animal(self, len(self.animals), start_x, start_y, end_x, end_y, config))
         return self.animals[-1]
+
+    def delete_all_animals(self):
+        self.animals = []
 
     def track_animals(self, source, matrix_fs, matrix, frame_time):
 
@@ -407,19 +412,25 @@ class Tracking:
 
         #cv2.normalize(frame_gr, frame_gr, 0, 255, cv2.NORM_MINMAX)           
 
-        frame_gr_resized = self.resize(frame_gr)           
+        debug.append(("source", frame_gr))
+
+        #frame_gr_resized1 = filters.gaussian_filter(frame_gr, 8)
+        #cv2.normalize(frame_gr_resized1, frame_gr_resized1, 0, 255, cv2.NORM_MINMAX)   
+
+        frame_gr_resized1 = frame_gr
+
+        debug.append(("smoothed", frame_gr_resized1))
+
+        frame_gr_resized = self.resize(frame_gr_resized1)           
+        frame_gr_resized = frame_gr_resized.astype(np.uint8)
 
         ret, frame_gr_resized = cv2.threshold(frame_gr_resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         frame_gr_resized = morphology.remove_small_objects(frame_gr_resized > 0, 100, 2, in_place = True)        
-        frame_gr_resized = frame_gr_resized.astype(np.uint8);
+        frame_gr_resized = frame_gr_resized.astype(np.uint8)
         cv2.normalize(frame_gr_resized, frame_gr_resized, 0, 255, cv2.NORM_MINMAX)           
-        
         
         border = self.config.skeletonization_border   
         frame_gr_resized = cv2.copyMakeBorder(frame_gr_resized, border, border, border, border, cv2.BORDER_CONSTANT, 0)
-
-                                             
-        debug.append(("source", frame_gr))    
 
         debug1 = self.track_animals(frame, frame_gr, frame_gr_resized, frame_time)                   
         
@@ -430,9 +441,6 @@ class Tracking:
         p = pos.backbone[pos.central_vertebra_index]        
         
         self.csv_path_writer.writerows([[p.center.x, p.center.y]])
-        
-        
-        
                    
         tracking_flow_element = TrackingFlowElement(frame_time, positions, frame_gr, debug)       
                       
@@ -447,7 +455,7 @@ class Tracking:
         
     def do_tracking(self, bg, start_frame, tracking_flow, time_to_stop, next_frame_semaphore, run_semaphore):
 
-        pdb.set_trace()
+        #pdb.set_trace()
 
         if not self.animals:
             return

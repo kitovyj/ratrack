@@ -266,9 +266,9 @@ class BoundaryAligner:
     
         #max_i = 0
                         
-        self.central_vertebra_index = max_i
+        central_vertebra_index = max_i
         
-        cv = backbone[self.central_vertebra_index]
+        cv = backbone[central_vertebra_index]
         (best_x, best_y, reference_value) = self.align_free_vertebra(matrix, backbone, cv)
         dx = best_x - cv.center.x
         dy = best_y - cv.center.y
@@ -393,7 +393,7 @@ class BoundaryAligner:
             if max_i == len(backbone) - 1:
                 max_i = max_i - 1
             
-            self.central_vertebra_index = max_i
+            central_vertebra_index = max_i
         
         '''
         if float(len(backbone)) / self.max_vertebra < 0.4:
@@ -406,6 +406,6 @@ class BoundaryAligner:
 
         self.last_frame_time = frame_time
             
-        return backbone
+        return (backbone, central_vertebra_index)
     
     
