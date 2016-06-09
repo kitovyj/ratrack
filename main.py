@@ -380,6 +380,67 @@ class Gui:
                 if not p.contracted:
                     cv2.circle(self.current_image, pf.as_int_tuple(), int(fr), white)                
                 cv2.circle(self.current_image, ph.as_int_tuple(), int(hr), white)
+
+
+            if self.check_show_posture.var.get():
+                
+                hc = self.project(p.head)                
+                fc = self.project(p.front)
+                bc = self.project(p.back)
+
+                hr = self.scaled_radius(a.head_radius)
+                fr = self.scaled_radius(a.front_radius)
+                br = self.scaled_radius(a.back_radius)
+                
+                fhd = geometry.distance(fc.x, fc.y, hc.x, hc.y)
+                fbd = geometry.distance(fc.x, fc.y, bc.x, bc.y)
+                
+                if not p.contracted:
+                
+                    h = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, fhd + hr)
+                    b = geometry.point_along_a_line(fc.x, fc.y, bc.x, bc.y, fbd + br)
+                                                
+                    cv2.line(self.current_image, (int(b[0]), int(b[1])), 
+                             (int(fc.x), int(fc.y)), white)
+                    cv2.line(self.current_image, (int(fc.x), int(fc.y)), 
+                             (int(h[0]), int(h[1])), white)                                    
+
+                    cv2.circle(self.current_image, (int(fc.x), int(fc.y)), 2, green)                
+                
+                    ahd = fhd - 4
+                    if ahd < 0:
+                        ahd = 0
+                
+                    arrow_head = geometry.point_along_a_line(fc.x, fc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], 3)
+                    arrow_line2 = geometry.point_along_a_perpendicular(fc.x, fc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], -3)
+                                
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line1[0]), int(arrow_line1[1])), white)
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line2[0]), int(arrow_line2[1])), white)
+                else:
+                    
+                    hbd = geometry.distance(hc.x, hc.y, bc.x, bc.y)                          
+                    h = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, hbd + hr)
+                    b = geometry.point_along_a_line(hc.x, hc.y, bc.x, bc.y, hbd + br)
+                    cv2.line(self.current_image, (int(b[0]), int(b[1])), 
+                             (int(h[0]), int(h[1])), white)
+                    ahd = hbd - 4
+                    if ahd < 0:
+                        ahd = 0
+                    arrow_head = geometry.point_along_a_line(bc.x, bc.y, hc.x, hc.y, ahd)
+                    arrow_line1 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], 3)
+                    arrow_line2 = geometry.point_along_a_perpendicular(bc.x, bc.y, hc.x, hc.y, 
+                                                                       arrow_head[0], arrow_head[1], -3)
+                                
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line1[0]), int(arrow_line1[1])), white)
+                    cv2.line(self.current_image, (int(h[0]), int(h[1])), 
+                             (int(arrow_line2[0]), int(arrow_line2[1])), white)
                          
                 
     def draw_image(self):

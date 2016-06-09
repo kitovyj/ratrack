@@ -146,7 +146,7 @@ class Animal:
             
             d = geometry.distance_p(p.back, p.head) + self.scaled_head_radius - self.scaled_back_radius
 
-            if d <= self.scaled_head_radius / 3: 
+            if d <= self.scaled_head_radius / 4: 
                 angles = [20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300, 320, 340]
             else:
                 angles = [-20, -10, 10, 20]
@@ -286,18 +286,18 @@ class Animal:
 
         debug.append(("rm", raw_matrix))
 
-#        thr, foo = cv2.threshold(raw_matrix, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        thr, foo = cv2.threshold(raw_matrix, 100, 255, cv2.THRESH_BINARY)
+        thr, foo = cv2.threshold(raw_matrix, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        #thr, foo = cv2.threshold(raw_matrix, 50, 255, cv2.THRESH_BINARY)
         
-        thr = 100
+        #thr = 50
 
         debug.append(("otsu", foo))
         
-        self.host.logger.log("threshold: " + str(thr))
+        #self.host.logger.log("threshold: " + str(thr))
         
         matrix = raw_matrix.astype(np.float)
         matrix = matrix - thr
-        matrix[matrix < 0] = -100
+        #matrix[matrix < 0] = -50
         
         postures = self.generate_postures()
         
@@ -595,7 +595,9 @@ class Tracking:
         
         positions = self.get_animal_positions()
         
-        #self.csv_path_writer.writerows([[p.center.x, p.center.y]])
+        pos = positions[0][1]
+        
+        self.csv_path_writer.writerows([[pos.back.x, pos.back.y]])
                    
         tracking_flow_element = TrackingFlowElement(frame_time, positions, frame_gr, debug)       
                       
