@@ -350,8 +350,7 @@ class Gui:
         r = geometry.Point(pos.x * self.image_scale_factor, pos.y * self.image_scale_factor)
         return r;        
 
-    def scaled_radius(self, bp):
-        r = bp.get_radius()
+    def scaled_radius(self, r):
         return r * self.image_scale_factor
     
             
@@ -368,42 +367,19 @@ class Gui:
             p = ap[1]
                         
             if self.check_show_model.var.get():
-
-                # find min and max values
-
-                max_val = -1
-                min_val = -1
                 
-                for v in p.backbone:
-                    if v.value > max_val:
-                        max_val = v.value
-                    if min_val == -1 or v.value < min_val:
-                        min_val = v.value
-                val_delta = max_val - min_val
-                        
-                for idx, v in enumerate(p.backbone):
-                    vc = self.project(v.center)
-                    if idx > 0:
-                        pvc = self.project(p.backbone[idx - 1].center)                
-                        cv2.line(self.current_image, (int(pvc.x), int(pvc.y)), 
-                             (int(vc.x), int(vc.y)), white)                       
-                        
-                for idx, v in enumerate(p.backbone):
-                    vc = self.project(v.center)
-                    if val_delta != 0:                        
-                        intensity = 255 - 255 * (v.value - min_val) / val_delta
-                    else:
-                        intensity = 255
-                    color = (255, intensity, intensity)
-                    r = 2
-                    if idx == p.central_vertebra_index:
-                        r = 4
-                    cv2.circle(self.current_image, (int(vc.x), int(vc.y)), r, color, -1)                
-                    #cv2.putText(self.current_image, str(v.value), (int(vc.x), int(vc.y)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, white)
-                    TextBoxLogger(self.analyzer_messages).log(str(v.value))
-                    
-                    if idx == len(p.backbone) - 1:
-                        cv2.circle(self.current_image, (int(vc.x), int(vc.y)), 6, green)                
+                ph = self.project(p.head)
+                pf = self.project(p.front)
+                pb = self.project(p.back)
+
+                hr = self.scaled_radius(a.head_radius)
+                fr = self.scaled_radius(a.front_radius)
+                br = self.scaled_radius(a.back_radius)
+
+                cv2.circle(self.current_image, pb.as_int_tuple(), int(br), white)                
+                if not p.contracted:
+                    cv2.circle(self.current_image, pf.as_int_tuple(), int(fr), white)                
+                cv2.circle(self.current_image, ph.as_int_tuple(), int(hr), white)
                          
                 
     def draw_image(self):

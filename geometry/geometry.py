@@ -16,11 +16,17 @@ class Point:
     def add(self, p):
         self.x += p.x
         self.y += p.y
-        return self        
+        return self       
+    def sum(self, p):
+        return Point(self.x + p.x, self.y + p.y)        
     def difference(self, p):
         return Point(self.x - p.x, self.y - p.y)
+    def diff(self, p):
+        return self.difference(p)
     def scaled(self, factor, shift = 0):
         return Point(self.x * factor + shift, self.y * factor + shift)
+    def affine_r(self, factor, shift = 0):
+        return Point((self.x - shift) / factor, (self.y - shift) / factor)
     def as_int(self):
         return Point(int(self.x), int(self.y))
 
@@ -37,6 +43,9 @@ def point_along_a_line(start_x, start_y, end_x, end_y, distance):
         if dx < 0:
             point_dx *= -1
         point_dy = point_dx * k        
+        if distance < 0:
+            point_dx = -point_dx
+            point_dy = -point_dy
         x = start_x + point_dx
         y = start_y + point_dy        
     else:
@@ -125,7 +134,7 @@ def cosine(x1, y1, x2, y2, x3, y3)                    :
     else:
         return 0        
 
-def pcosine(p1, p2, p3):
+def cosine_p(p1, p2, p3):
     return cosine(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y)
     
 def sgn(x):
@@ -174,7 +183,7 @@ def rotate_p(point, pivot, angle):
     p = point.difference(pivot);
     x = p.x * c - p.y * s + pivot.x
     y = p.x * s + p.y * c + pivot.y
-    return (x, y)
+    return Point(x, y)
 
 
         

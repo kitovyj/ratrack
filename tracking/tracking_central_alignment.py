@@ -330,7 +330,8 @@ class CentralAligner:
                                                          
            # if it's the last vertebra, try to prolong the backbone...
            
-           if idx == len(backbone) - 1 and vertebra_added < max_vertebra_to_add:             
+           if idx == len(backbone) - 1 and vertebra_added < max_vertebra_to_add:
+              self.host.logger.log('prolong')              
               pvd = geometry.distance(prev.center.x, prev.center.y, v.center.x, v.center.y)
               next_center = geometry.point_along_a_line(prev.center.x, prev.center.y, v.center.x, v.center.y, pvd + self.host.config.vertebra_length)
               backbone.append(Vertebra(next_center[0], next_center[1], 0))
@@ -353,17 +354,17 @@ class CentralAligner:
         
         max_i = 0
         max_val = -1
-        for i in xrange(0, len(backbone) / 3):
- #       for i in xrange(0, len(backbone)):
+ #       for i in xrange(0, len(backbone) / 3):
+        for i in xrange(0, len(backbone)):
             if backbone[i].value > max_val:
                 max_val = backbone[i].value
                 max_i = i
         
     
-        '''
-        if max_i == 0:
-            max_i = 1
-        '''
+        
+        #if max_i == 0:
+        #    max_i = 1
+        
                 
         central_vertebra_index = max_i
     
@@ -380,6 +381,7 @@ class CentralAligner:
             v.center.x = v.center.x + dx
             v.center.y = v.center.y + dy
                             
+        central_vertebra_index = 0
         cvi = central_vertebra_index
                 
         if cvi > 0:
@@ -391,9 +393,10 @@ class CentralAligner:
     
         prev = new_front[1]
     
-        #(new_back, back_val, back_index) = ([], 0, 0)
-        (new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(backbone[:cvi + 1]), reference_value, 0, prev, self.config.back_min_value_coeff, time_passed)
+        (new_back, back_val, back_index) = ([], 0, 0)
+        #(new_back, back_val, back_index) = self.align_backbone(matrix, weight_matrix, reversed(backbone[:cvi + 1]), reference_value, 0, prev, self.config.back_min_value_coeff, time_passed)
     
+        '''
         central_vertebra_index = len(new_back) - 1
     
         if back_val > reference_value:
@@ -406,9 +409,14 @@ class CentralAligner:
                         
                 
         backbone = list(reversed(new_back)) + new_front[1:]
+        '''
+        
+        backbone = new_front
     
+        '''
         if central_vertebra_index == len(backbone) - 1:
             central_vertebra_index = len(backbone) - 2
+        '''
 
         max_val = 0
         max_i = 0
