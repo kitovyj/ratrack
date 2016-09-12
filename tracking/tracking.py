@@ -241,9 +241,9 @@ class Animal:
         start = geometry.Point(start_x, start_y)
         end = geometry.Point(end_x, end_y)                
 
-        self.scaled_head_radius = 4
-        self.scaled_front_radius = 5
-        self.scaled_back_radius = 6
+        self.scaled_head_radius = 5
+        self.scaled_front_radius = 6
+        self.scaled_back_radius = 7
                 
         head_radius = self.scaled_head_radius / host.scale_factor
         front_radius = self.scaled_front_radius / host.scale_factor
@@ -402,12 +402,12 @@ class Animal:
         
         self.host.logger.log("total postures: " + str(total_postures))
               
-        '''
+        
         c = 0
         dc = 1
         cell_size = 40
         
-        while c < total_postures:
+        while c < min(total_postures, 10):
             
             debug_postures = np.zeros((rows, cols), np.uint8)
 
@@ -439,7 +439,7 @@ class Animal:
                     
             debug.append(("postures " + str(dc), debug_postures))
             dc = dc + 1
-        '''
+        
             
         return debug
                                 

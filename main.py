@@ -91,7 +91,8 @@ class Gui:
     #video_file_name = 'videotest.avi'
     #c:\radboud\ratrack\videos\2014-03-22_20-57-44.avi
     #video_file_name = 'c:/radboud/ratrack/videos/2014-03-22_20-57-44.avi'
-    video_file_name = 'c:/radboud/ratrack/videos/evelien/Peppie_LM5min_19052016_.avi'
+    #video_file_name = 'c:/radboud/ratrack/videos/evelien/Peppie_LM5min_19052016_.avi'
+    video_file_name = 'c:/radboud/ratrack/videos2014-12-01_15-25-26.avi'
             
     video = 0    
     
