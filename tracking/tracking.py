@@ -29,8 +29,8 @@ class Animal:
         max_body_length = 60
         max_body_width = 30
         min_body_width = 30        
-        front_min_value_coeff = 100
-        back_min_value_coeff = 100            
+        front_min_value_coeff = 0.8
+        back_min_value_coeff = 0.9           
         def __init__(self):
             self.model = self.model_normal
     
@@ -223,8 +223,8 @@ class Animal:
         for v in self.backbone:
             bb1.append(v.clone())
                 
-        #(self.backbone, cni) = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
-        (self.backbone, cni) = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        (self.backbone, cni) = self.boundary_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
+        #(self.backbone, cni) = self.central_aligner.align(matrix, weight_matrix, self.backbone, animals, frame_time)
         self.central_vertebra_index = cni                
             
         return debug
@@ -245,7 +245,7 @@ class Tracking:
         skeletonization_res_width = 320
         skeletonization_res_height = 240        
         skeletonization_border = 20
-        vertebra_length = 10
+        vertebra_length = 3
         scale = 1 
 
     scale_factor = 1        
